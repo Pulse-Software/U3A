@@ -1,0 +1,9 @@
+﻿update-database -cont TenantStoreDbContext -project U3A.Database EFCoreStore_Eway
+
+remove-migration -cont TenantStoreDbContext -project U3A.Database -args Postmark
+
+add-migration -cont TenantStoreDbContext -project U3A.Database Postmark
+
+update-database -cont TenantStoreDbContext -project U3A.Database
+
+script-migration -cont TenantStoreDbContext -project U3A.Database -idempotent -Output TenantMigration.sql

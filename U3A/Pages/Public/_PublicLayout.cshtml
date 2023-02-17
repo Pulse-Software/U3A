@@ -1,0 +1,60 @@
+﻿@using Microsoft.AspNetCore.Components.Web
+
+@namespace U3A.Pages
+@addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>U3A Member Portal</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="~/" />
+    <link href="css/site.css" rel="stylesheet" />
+    <component type="typeof(HeadOutlet)" render-mode="ServerPrerendered" />
+
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.2/font/bootstrap-icons.css">
+    <link href="_content/DevExpress.Blazor.RichEdit/dx-blazor-richedit.bs5.css" rel="stylesheet" />
+    <link rel="stylesheet" href="_content/DevExpress.Blazor.Reporting.Viewer/css/dx-blazor-reporting-components.bs5.css">
+    <link href="_content/DevExpress.Blazor.Themes/office-white.bs5.min.css" rel="stylesheet" />
+
+    <link rel="apple-touch-icon" sizes="180x180" href="/favicon/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon/favicon-16x16.png">
+    <link rel="manifest" href="/favicon/site.webmanifest">
+    <script type="text/javascript" src="~/js/MyFunctions.js"></script>
+
+
+</head>
+<body class="d-flex flex-column h-100">
+
+    @{
+        var isIEOrEdgeLegacy = Context.Request.Headers["User-Agent"]
+        .Any(userAgent => userAgent.Contains("MSIE") || userAgent.Contains("Trident") || userAgent.Contains("Edge/"));
+    }
+    @if (isIEOrEdgeLegacy) {
+        <component type="typeof(U3A.Shared.BrowserNotSupported)" render-mode="Static" />
+    }
+    else {
+
+        @RenderBody()
+
+        <div id="blazor-error-ui">
+            <environment include="Staging,Production">
+                An error has occurred. This application may no longer respond until reloaded.
+            </environment>
+            <environment include="Development">
+                An unhandled exception has occurred. See browser dev tools for details.
+            </environment>
+            <a href="" class="reload">Reload</a>
+            <a class="dismiss">🗙</a>
+        </div>
+
+        <script src="_framework/blazor.server.js"></script>
+    }
+    @await RenderSectionAsync("Scripts", required: false)
+
+</body>
+</html>
+
+

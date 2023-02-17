@@ -1,0 +1,269 @@
+﻿@page "/FeeMnt"
+
+@inject NavigationManager NavManager
+@inject IJSRuntime js
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@implements IDisposable
+
+
+@attribute [Authorize]
+
+@if (!IsReady) {
+    <p><em>Loading...</em></p>
+}
+else {
+
+    <div class="row  align-content-start">
+        <h3>Fee Adjustment</h3>
+    </div>
+    <div class="row">
+        <div class="col-10 d-none d-md-inline">
+            This procedure is intended to make adjustments and correct errors only. It is rarely used as
+            <br />membership fees are normally calculated by the system and in many cases are time of year dependent.
+            <br />Please ensure fee parameters defined in <em>Membership Fees</em> and <em>Add/Edit Courses</em> are correct before adjusting fees using this procedure.
+            <br /><strong>Note:</strong> Use <em>Complimentary Membership</em> to assign/deassign complimentary membership as these are not fee adjustments.
+        </div>
+        <div class="col col-lg-2">
+            <YearComponent @ref="@yearComponent" OnYearChangedEvent="SelectedYearChanged" />
+        </div>
+
+    </div>
+    <br />
+
+    <ErrorPopup @ref="@ErrorPopup" PopupHeader="@ErrorHeader" PopupMessage="@ErrorMessage" />
+    <MessageBox @ref="@messageBox" PopupWidth="@messageBoxWidth" />
+
+    <GridToolbar @ref="Toolbar" LinkedGrid=@mainGrid />
+
+    <DxGrid Data="@Fees" @ref=@mainGrid CssClass="h-75"
+        ColumnResizeMode="GridColumnResizeMode.ColumnsContainer"
+        GroupFooterDisplayMode="GridGroupFooterDisplayMode.Auto"
+        ShowFilterRow="false"
+        ShowAllRows="true"
+        KeyFieldName="ID"
+        PopupEditFormCssClass="popup-width"
+        PopupEditFormHeaderText="Add/Edit Fee"
+        ValidationEnabled="true"
+        CustomizeEditModel="OnCustomizeEditModel"
+        EditMode="GridEditMode.PopupEditForm"
+        DataItemDeleting="Grid_DataItemDeleting"
+        EditModelSaving="Grid_EditModelSaving">
+        <Columns>
+            <DxGridCommandColumnEx @ref="GridCommandColumn" Width="10rem"
+                             EditButtonVisible="true" DeleteButtonVisible="true" />
+            <DxGridDataColumn Caption="First Name" FieldName="Person.FirstName" Width="10rem" />
+            <DxGridDataColumn Caption="Last Name" FieldName="Person.LastName" Width="10rem" />
+            <DxGridDataColumn Caption="Date" FieldName="Date" DisplayFormat="@constants.SHORT_DATE_FORMAT" Width="8rem" />
+            <DxGridDataColumn Caption="Description" FieldName="Description" />
+            <DxGridDataColumn Caption="Membership Fee?" FieldName="IsMembershipFee" Width="10rem">
+                <CellDisplayTemplate>
+                    <DxCheckBox Enabled="false" Checked="(bool)context.Value" />
+                </CellDisplayTemplate>
+                <FilterRowCellTemplate>
+                    <DxCheckBox Checked="(bool?)context.FilterRowValue"
+                            CheckedChanged="(bool? v) => context.FilterRowValue = v"
+                            AllowIndeterminateStateByClick="true"
+                            Alignment="CheckBoxContentAlignment.Center" />
+                </FilterRowCellTemplate>
+            </DxGridDataColumn>
+            <DxGridDataColumn Caption="Amount" FieldName="Amount" DisplayFormat="{0:c2}" />
+        </Columns>
+        <GroupSummary>
+            <DxGridSummaryItem SummaryType="GridSummaryItemType.Count"
+                           FieldName="Description"
+                           FooterColumnName="Identifier" />
+            <DxGridSummaryItem SummaryType="GridSummaryItemType.Sum"
+                           ValueDisplayFormat="{0:c2}"
+                           FieldName="Amount"
+                           FooterColumnName="Amount" />
+        </GroupSummary>
+        <TotalSummary>
+            <DxGridSummaryItem SummaryType="GridSummaryItemType.Count" FieldName="Description" FooterColumnName="Identifier" />
+            <DxGridSummaryItem SummaryType="GridSummaryItemType.Sum" ValueDisplayFormat="{0:c2}" FieldName="Amount" />
+        </TotalSummary>
+
+        <EditFormTemplate Context="EditFormContext">
+            @{
+                var editItem = (Fee)EditFormContext.EditModel;
+            }
+            <DxFormLayout>
+                <DxFormLayoutItem ColSpanMd="12">
+                    <ValidationSummary />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Received From" ColSpanMd="12">
+                    <DxComboBox Data="Persons"
+                            ListRenderMode="ListRenderMode.Virtual"
+                            FilteringMode="DataGridFilteringMode.Contains"
+                            ClearButtonDisplayMode="DataEditorClearButtonDisplayMode.Auto"
+                            @bind-Value="editItem.Person"
+                            TextFieldName="@nameof(Person.PersonSummary)">
+                        <DxListEditorColumn FieldName="@nameof(Person.LastName)"
+                                        Caption="Last Name" />
+                        <DxListEditorColumn FieldName="@nameof(Person.FirstName)"
+                                        Caption="First Name" />
+                        <DxListEditorColumn FieldName="@nameof(Person.Mobile)"
+                                        Caption="Mobile" />
+                        <DxListEditorColumn FieldName="@nameof(Person.Email)"
+                                        Caption="Email" />
+                    </DxComboBox>
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Date" ColSpanMd="12">
+                    <DxDateEdit @bind-Date="@editItem.Date" Mask=@constants.STD_DATE_FORMAT>
+                    </DxDateEdit>
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Description" ColSpanMd="12">
+                    <DxTextBox @bind-Text="@editItem.Description" />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Amount" ColSpanMd="12">
+                    <DxMaskedInput @bind-Value="@editItem.Amount" Mask="@NumericMask.Currency" />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Include as Membershyp Fee?" ColSpanMd="12">
+                    <DxCheckBox @bind-Checked="@editItem.IsMembershipFee" />
+                </DxFormLayoutItem>
+            </DxFormLayout>
+        </EditFormTemplate>
+    </DxGrid>
+
+}<style>
+     .popup-width {
+         min-width: 40rem;
+     }
+
+</style>
+
+@code {
+    bool IsReady;
+    List<Fee>? Fees { get; set; }
+    IEnumerable<Person>? Persons { get; set; }
+    SystemSettings settings;
+    YearComponent? yearComponent;
+    int ProcessingYear;
+    Fee? originalFee;
+
+    DxGridCommandColumnEx? GridCommandColumn;
+    MessageBox? messageBox;
+    string? messageBoxWidth;
+
+    IGrid? mainGrid { get; set; }
+    ErrorPopup? ErrorPopup { get; set; }
+    GridToolbar? Toolbar;
+    string? ErrorHeader;
+    string? ErrorMessage;
+    U3ADbContext? dbc { get; set; }
+    MemberFeeCalculationService service;
+
+    protected override async Task OnInitializedAsync() {
+        // wire up the data
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+        settings = dbc.SystemSettings.FirstOrDefault();
+        service = new MemberFeeCalculationService();
+        IsReady = true;
+    }
+
+    void OnCustomizeEditModel(GridCustomizeEditModelEventArgs e) {
+        var editModel = (Fee)e.EditModel;
+        if (e.IsNew)
+        {
+            editModel.ProcessingYear = ProcessingYear;
+            editModel.Date = DateTime.Today;
+            editModel.Description = "Manual Fee Adjustment";
+            editModel.IsMembershipFee = true;
+            originalFee = null;
+        }
+        else originalFee = editModel;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender) {
+        if (firstRender) {
+            await RefreshData();
+        }
+        if (Toolbar != null && mainGrid != null) { Toolbar.LinkedGrid = mainGrid; }
+        await base.OnAfterRenderAsync(firstRender);
+    }
+
+    async Task Grid_EditModelSaving(GridEditModelSavingEventArgs e) {
+        var editModel = (Fee)e.EditModel;
+        if (!e.Cancel) {
+            // Re-query a data item from the store.
+            var dataItem = e.IsNew
+                                ? new Fee()
+                                : dbc.Fee.Find(editModel.ID);
+            // Assign changes from the edit model to the data item.
+            if (dataItem != null) {
+                editModel.CopyTo(dataItem);
+                dataItem.Person = dbc.Person.Find(editModel.Person.ID);
+                // Post changes to the database.
+                if (e.IsNew) {
+                    await dbc.AddAsync(dataItem);
+                }
+                if (await SaveChangesAsync()) {
+                    if (originalFee != null) await UpdatePersonFinancialTo(originalFee);
+                    await UpdatePersonFinancialTo(dataItem);
+                    await SaveChangesAsync();
+                    await RefreshData();
+                }
+            }
+        }
+    }
+
+    async Task Grid_DataItemDeleting(GridDataItemDeletingEventArgs e) {
+        Fee Fee = (Fee)e.DataItem;
+        dbc.Remove(Fee);
+        await SaveChangesAsync();
+        await RefreshData();
+    }
+
+    async Task<bool> SaveChangesAsync() {
+        bool result = false;
+        try {
+            // Post changes to the database.
+            await dbc.SaveChangesAsync();
+            result = true;
+        }
+        catch (Exception ex) {
+            ErrorHeader = "Save to database error";
+            ErrorMessage = Helpers.GetErrorMessage(ex);
+            await ErrorPopup.ShowPopupAsync();
+            dbc?.ChangeTracker?.Clear();
+        }
+        return result;
+    }
+
+    private async Task UpdatePersonFinancialTo(Fee fee) {
+        var person = fee.Person;
+        var maxDate = DateTime.MaxValue;
+        var minMembershipFee = await service.CalculateMinimumFeePayableAsync(U3Adbfactory, person);
+        var paidToDate = BusinessRule.GetPreviouslyPaidAsync(dbc, person.ID,ProcessingYear, maxDate);
+        // Set FinancialTo if amount paid greater than minimum amount
+        if (paidToDate >= minMembershipFee) {
+            person.FinancialTo = (person.FinancialTo >= ProcessingYear) ? person.FinancialTo : ProcessingYear;
+        }
+        else {
+            // Otherwise, we are unfinancial
+            person.FinancialTo = ProcessingYear - 1; // Good enaough if prev financialTo is null
+            if (person.PreviousFinancialTo != null)
+            {
+                if (person.PreviousFinancialTo.HasValue && person.PreviousFinancialTo < ProcessingYear)
+                {
+                    person.FinancialTo = person.PreviousFinancialTo.Value;
+                }
+            }
+        }
+    }
+
+
+    async Task SelectedYearChanged(int NewYear) {
+        await RefreshData();
+    }
+
+    async Task RefreshData() {
+        ProcessingYear = yearComponent.Year;
+        if (Persons == null) Persons = await BusinessRule.SelectablePersonsIncludeUnfinancialAsync(dbc);
+        Fees = await BusinessRule.EditableFeesForYearAsync(dbc, ProcessingYear);
+        StateHasChanged();
+    }
+
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+}

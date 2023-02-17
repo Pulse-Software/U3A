@@ -1,0 +1,179 @@
+﻿@inherits LayoutComponentBase
+
+@namespace U3A.UI.Forms
+
+@inject IJSRuntime js
+@inject NavigationManager NavigationManager
+
+@attribute [Authorize]
+
+@if (!IsReady) {
+    <p><em>Loading...</em></p>
+}
+else {
+    <MessageBox @ref="@messageBox" />
+    <Progress @ref="@progress" />
+
+    <DxFormLayout CssClass="col-12 m-auto mb-2">
+        @if (Enabled) {
+            <DxFormLayoutItem Caption="Term" ColSpanXs="12">
+                <DxComboBox Data="@terms" NullText="Processing ... please wait"
+                    Enabled="@Enabled"
+                    FilteringMode="DataGridFilteringMode.Contains"
+                    TextFieldName="@nameof(Term.TermSummary)"
+                    Value="@selectedTerm"
+                    ValueChanged="@((Term term) => SelectedTermChanged(term))" />
+            </DxFormLayoutItem>
+            <DxFormLayoutItem Caption="Course" ColSpanMd="12">
+                <DxComboBox Data="@courses" NullText="Processing ... please wait"
+                    Enabled="@Enabled"
+                    FilteringMode="DataGridFilteringMode.Contains"
+                    ListRenderMode="ListRenderMode.Virtual"
+                    TextFieldName="@nameof(Course.Name)"
+                    Value="@selectedCourse"
+                    ValueChanged="@((Course course) => SelectedCourseChanged(course))">
+                    <DxListEditorColumn FieldName="@nameof(Course.ConversionID)"
+                                Caption="No"
+                                Width="25%" />
+                    <DxListEditorColumn FieldName="@nameof(Course.Name)"
+                                Caption="Course"
+                                Width="75%" />
+                </DxComboBox>
+            </DxFormLayoutItem>
+            <DxFormLayoutItem Caption="Class" ColSpanMd="12">
+                <DxComboBox @ref="@ClassComboBox" Data="@classes" Enabled="@(Enabled && classComboEnabled)" NullText="@classComboNullText"
+                    TextFieldName="@nameof(Class.ClassSummary)"
+                    Value="@selectedClass"
+                    ValueChanged="@((Class selectedClass) => SelectedClassChanged(selectedClass))" />
+            </DxFormLayoutItem>
+        }
+        else {
+            <div class="text-center col-12">
+                @(new MarkupString($"{selectedTerm?.Name} {selectedCourse?.Name}<br/>{selectedClass?.ClassSummary}"))
+            </div>
+        }
+    </DxFormLayout>
+}
+@code {
+    [CascadingParameter]
+    LoginState? loginState { get; set; }
+
+    [Parameter]
+    public bool Enabled { get; set; }
+    [Parameter]
+    public EventCallback<PortalMenuResult> OnTermAndCourseCancelled { get; set; }
+    [Parameter]
+    public U3ADbContext dbContext { get; set; }
+
+    public Term? selectedTerm { get; set; }
+    public Course? selectedCourse { get; set; }
+    public Class? selectedClass { get; set; }
+    public List<Enrolment>? Enrolments { get; set; }
+
+    bool IsReady;
+    SystemSettings? settings;
+    Person? leader;
+    MessageBox? messageBox { get; set; }
+    Progress? progress;
+
+    private List<Term> terms { get; set; }
+
+    private List<Course> courses { get; set; }
+
+    private List<Class> classes { get; set; }
+
+    private string classComboNullText;
+    private bool classComboEnabled;
+    private DxComboBox<Class, Class?> ClassComboBox;
+    bool isLeader;
+
+    protected override async Task OnInitializedAsync() {
+        // wire up the data
+        IsReady = true;
+    }
+
+    protected override async Task OnParametersSetAsync() {
+        await base.OnParametersSetAsync();
+        if (dbContext == null) return;
+        try {
+            leader = loginState.SelectedPerson;
+            settings = await dbContext.SystemSettings.FirstOrDefaultAsync();
+            terms = await BusinessRule.SelectableRelaxedTermsAsync(dbContext);
+            selectedTerm = await BusinessRule.CurrentTermAsync(dbContext);
+
+            isLeader = await BusinessRule.IsLeader(dbContext, leader, selectedTerm);
+            if (!isLeader) {
+                await messageBox.ShowOkOnlyAsync("No Leader Role", "You have no leadership role in the current year.");
+                await ReturnToMenu();
+            }
+            else { await GetLeadersCourses(); }
+        }
+        catch (Exception e) { await ReturnToMenu(); }
+    }
+
+    async Task GetLeadersCourses() {
+        if (leader != null && selectedTerm != null) {
+            try {
+                courses = await BusinessRule.SelectableCoursesForLeader(dbContext, selectedTerm, leader);
+                if (courses.Count <= 0) {
+                    await messageBox.ShowOkOnlyAsync("There are no classes in the current term",
+                        $"The course(s) you lead have no classes in term {selectedTerm.TermNumber}.");
+                    await ReturnToMenu();
+                }
+                else {
+                    if (selectedCourse == null || (!courses.Contains(selectedCourse))) {
+                        selectedCourse = courses.FirstOrDefault();
+                    }
+                    await SetupClasses();
+                }
+            }
+            catch (Exception e) { await ReturnToMenu(); }
+        }
+    }
+
+
+    async Task SelectedTermChanged(Term term) {
+        selectedTerm = term;
+        await GetLeadersCourses();
+    }
+
+    async Task SelectedCourseChanged(Course course) {
+        selectedCourse = course;
+        await SetupClasses();
+    }
+
+    async Task SelectedClassChanged(Class Class) {
+        selectedClass = Class;
+        await GetEnrolments();
+    }
+
+    async Task SetupClasses() {
+        if (selectedCourse == null) return;
+        classes = selectedCourse.Classes;
+        if (selectedClass == null || !classes.Contains(selectedClass)) {
+            selectedClass = classes?.FirstOrDefault();
+        }
+        if (classes?.Count <= 1) {
+            classComboEnabled = false;
+            classComboNullText = selectedClass.ClassDetailWithoutVenue;
+        }
+        else {
+            classComboEnabled = true;
+            classComboNullText = null;
+        }
+        await GetEnrolments();
+    }
+
+    async Task GetEnrolments() {
+        if (selectedTerm == null) return;
+        if (selectedCourse == null) return;
+        if (selectedClass == null) return;
+        Enrolments = await BusinessRule.EditableEnrolmentsAsync(dbContext, selectedTerm, selectedCourse, selectedClass);
+    }
+
+
+    async Task ReturnToMenu() {
+        await OnTermAndCourseCancelled.InvokeAsync();
+    }
+
+}

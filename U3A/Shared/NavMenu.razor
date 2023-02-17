@@ -1,0 +1,48 @@
+﻿<div class="sidebar @StateCssClass">
+    <DxTreeView AllowSelectNodes="true" CssClass="app-sidebar">
+        <Nodes>
+            <DxTreeViewNode NavigateUrl="./" Text="Overview"></DxTreeViewNode>
+
+            <AuthorizeView>
+                <Authorized>
+
+                    <DxTreeViewNode Visible="@isSuperAdmin" Text="Security">
+                        <Nodes>
+                            <DxTreeViewNode NavigateUrl="https://www.pulseclub.com.au" Text="Course Types"></DxTreeViewNode>
+                        </Nodes>
+                    </DxTreeViewNode>
+
+                    <DxTreeViewNode Text="Maintenance">
+                        <Nodes>
+                            <DxTreeViewNode NavigateUrl="CourseTypeMnt" Text="Course Types"></DxTreeViewNode>
+                        </Nodes>
+                    </DxTreeViewNode>
+                    <DxTreeViewNode Text="Reports">
+                        <Nodes>
+                            <DxTreeViewNode NavigateUrl="CourseTypeList" Text="Course Types List"></DxTreeViewNode>
+                        </Nodes>
+                    </DxTreeViewNode>
+
+                </Authorized>
+            </AuthorizeView>
+
+        </Nodes>
+    </DxTreeView>
+
+</div>
+
+@code {
+    [Parameter]
+    public string? StateCssClass { get; set; }
+
+    bool isSuperAdmin;
+
+    [CascadingParameter] Task<AuthenticationState> authenticationStateTask { get; set; }
+
+    protected override async Task OnParametersSetAsync() {
+        var authenticationState = await authenticationStateTask;
+        isSuperAdmin = authenticationState.User.IsInRole("Security Administrator");
+    }
+
+}
+

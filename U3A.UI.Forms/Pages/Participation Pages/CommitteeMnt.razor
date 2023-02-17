@@ -1,0 +1,181 @@
+﻿@page "/CommitteeMnt"
+
+@inject IJSRuntime js
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@implements IDisposable
+
+@attribute [Authorize]
+
+@if (!IsReady) {
+    <p><em>Loading...</em></p>
+}
+else {
+
+    <div class="row  align-content-start">
+        <h3>Committee Members</h3>
+    </div>
+    <div class="row">
+        <div class="col-11  d-none d-md-inline">
+            Enter/Edit the participants holding committe positions.
+        </div>
+
+    </div>
+    <br />
+
+    <MessageBox @ref="@messageBox" />
+
+    <ErrorPopup @ref="@ErrorPopup" PopupHeader="@ErrorHeader" PopupMessage="@ErrorMessage" />
+
+    <GridToolbar @ref="Toolbar" LinkedGrid=@mainGrid />
+
+    <DxGrid Data="@CommitteePositions" @ref=@mainGrid CssClass="h-75"
+        ColumnResizeMode="GridColumnResizeMode.Disabled"
+        AllowSelectRowByClick="true"
+        ShowFilterRow="false"
+        ShowAllRows="true"
+        KeyFieldName="ID"
+        ValidationEnabled="true"
+        PopupEditFormCssClass="popup-width"
+        EditMode="GridEditMode.PopupEditForm"
+        DataItemDeleting="Grid_DataItemDeleting"
+        EditModelSaving="Grid_EditModelSaving">
+        <Columns>
+            <DxGridCommandColumnEx Width="8rem" />
+            <DxGridDataColumn Caption="Position" FieldName="Position" Width="10rem" />
+            <DxGridDataColumn Caption="Held By" FieldName="Person.PersonSummary" />
+        </Columns>
+
+        <EditFormTemplate Context="CommitteeContext">
+            @{
+                var editItem = (Committee)CommitteeContext.EditModel;
+            }
+            <DxFormLayout>
+                <DxFormLayoutItem ColSpanMd="12">
+                    <ValidationSummary />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Position" ColSpanMd="12">
+                    <DxComboBox Data="@Positions" @bind-Value="@editItem.Position" />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Held By" ColSpanMd="12">
+                    <DxComboBox Data="Persons"
+                            ListRenderMode="ListRenderMode.Virtual"
+                            FilteringMode="DataGridFilteringMode.Contains"
+                            ClearButtonDisplayMode="DataEditorClearButtonDisplayMode.Auto"
+                            @bind-Value="editItem.Person"
+                            TextFieldName="@nameof(Person.PersonSummary)">
+                    </DxComboBox>
+                </DxFormLayoutItem>
+            </DxFormLayout>
+        </EditFormTemplate>
+    </DxGrid>
+
+
+}
+<style>
+    .popup-width {
+        min-width: 40rem;
+    }
+</style>
+
+
+@code {
+    bool IsReady;
+    IReadOnlyList<object> SelectedDataItems { get; set; }
+    SystemSettings? settings;
+    List<string> Positions;
+    List<Person> Persons;
+    List<Committee> CommitteePositions { get; set; }
+
+    MessageBox messageBox;
+
+    internal IGrid? mainGrid { get; set; }
+    internal ErrorPopup? ErrorPopup { get; set; }
+    internal GridToolbar? Toolbar;
+    internal string ErrorHeader;
+    internal string ErrorMessage;
+    U3ADbContext dbc { get; set; }
+
+    protected override async Task OnInitializedAsync() {
+        // wire up the data
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+        await RefreshData();
+        IsReady = true;
+    }
+
+    async Task RefreshData() {
+        Persons = await BusinessRule.EditablePersonAsync(dbc);
+        settings = await dbc.SystemSettings.FirstOrDefaultAsync();
+        if (settings != null) {
+            Positions = settings.CommitteePositions.Split(new string[] { "\n" },
+                                StringSplitOptions.None)
+                                .Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
+        }
+        CommitteePositions = await dbc.Committee.ToListAsync();
+    }
+
+    protected override void OnAfterRender(bool firstRender) {
+        // wire up the toolbar
+        base.OnAfterRender(firstRender);
+        if (Toolbar != null && mainGrid != null) { Toolbar.LinkedGrid = mainGrid; }
+    }
+
+    async Task Grid_EditModelSaving(GridEditModelSavingEventArgs e) {
+        var editModel = (Committee)e.EditModel;
+        // Re-query a data item from the store.
+        var dataItem = e.IsNew ? new Committee() : dbc.Committee.Find(editModel.ID);
+        // Assign changes from the edit model to the data item.
+        if (dataItem != null) {
+            editModel.CopyTo(dataItem);
+            if (editModel.Person != null) { dataItem.Person = dbc.Person.Find(editModel.Person.ID); }
+            try {
+                // Post changes to the database.
+                if (e.IsNew) await dbc.AddAsync(dataItem);
+                await dbc.SaveChangesAsync();
+                // update the Grid.
+                if (e.IsNew) {
+                    CommitteePositions.Insert(0, dataItem);
+                }
+                else {
+                    int idx = CommitteePositions.FindIndex(x => x.ID == dataItem.ID);
+                    CommitteePositions[idx] = dataItem;
+                }
+            }
+            catch (Exception ex) {
+                ErrorHeader = "Save to database error";
+                ErrorMessage = Helpers.GetErrorMessage(ex);
+                await ErrorPopup.ShowPopupAsync();
+                dbc?.ChangeTracker?.Clear();
+                e.Cancel = true;
+            }
+        }
+    }
+
+    async Task Grid_DataItemDeleting(GridDataItemDeletingEventArgs e) {
+        var Committee = (Committee)e.DataItem;
+        await BusinessRule.DeleteLeadershipRole(dbc, Committee.ID);
+        dbc.Remove(Committee);
+        await SaveChangesAsync();
+        await RefreshData();
+    }
+
+    async Task<bool> SaveChangesAsync() {
+        bool result = false;
+        try {
+            // Post changes to the database.
+            await dbc.SaveChangesAsync();
+            result = true;
+        }
+        catch (Exception ex) {
+            ErrorHeader = "Save to database error";
+            ErrorMessage = Helpers.GetErrorMessage(ex);
+            await ErrorPopup.ShowPopupAsync();
+            dbc?.ChangeTracker?.Clear();
+        }
+        return result;
+    }
+
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+
+}

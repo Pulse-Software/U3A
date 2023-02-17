@@ -1,0 +1,363 @@
+﻿@attribute [Authorize]
+
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@inject NavigationManager NavigationManager
+@inject EwayConnectionSingleton EwayCnn
+
+
+@implements IDisposable
+
+@using Eway.Rapid
+@using Eway.Rapid.Abstractions
+@using Eway.Rapid.Abstractions.Request
+@using Eway.Rapid.Abstractions.Response
+@using Eway.Rapid.Abstractions.Models
+@using Eway.Rapid.Abstractions.Interfaces
+
+
+
+@if (!IsReady) {
+    <p><em>Loading...</em></p>
+}
+else {
+
+    <DxLayoutBreakpoint MinWidth="1200"
+                    @bind-IsActive="@IsSmallLayout" />
+
+    <MessageBox @ref="@messageBox" />
+
+    <Progress @ref="@progressBar" />
+
+    <DxFormLayout class="mx-4 w-100">
+        <div class="col-12 col-lg-8 col-xl-6 mx-auto">
+            @switch (menuSelection) {
+                case PortalMenuSelection.DoMemberPaymentPreamble:
+                    <DxFormLayoutGroup Caption="@($"Membership Fees for: {loginState.SelectedPerson.FullName}")" HeaderCssClass="h4">
+                        @if (showFeesDueToggle) {
+                            <table class="table table-bordered">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Description</th>
+                                        <th scope="col" style="text-align: right">Amount</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var fee in memberFees) {
+                                        <tr>
+                                            <td>@fee.Description</td>
+                                            <td style="text-align: right">@(fee.Amount.ToString("c2"))</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                        else {
+                            <div class="p-2">
+                                <div class="h5">It's your choice!</div>
+                                <p>
+                                    Membership fees may be paid via our <strong>secure online payment system</strong>
+                                    or by <strong>bank direct payment</strong>.
+                                </p>
+                                <ul>
+                                    <li><strong>Online payment</strong> is secure, fast and reliable. It is the recomended method of payment.</li>
+                                    <li><strong>Bank Direct Payment</strong> is much slower due to additional reconciliation procedures required by our volunteer staff.</li>
+                                </ul>
+                                <p align="center"><em>Please Note: For the safety and security of our volunteer staff, the U3A group does not accept cash or cheque at any time.</em></p>
+                            </div>
+                        }
+                    </DxFormLayoutGroup>
+                    <DxButton Text="@AmountDueText" SizeMode="SizeMode.Medium"
+                  CssClass="col-12 my-2"
+                  Click="@(e => DoShowFeesDue())"
+                  RenderStyle="ButtonRenderStyle.Light"
+                  RenderStyleMode="ButtonRenderStyleMode.Contained">
+                    </DxButton>
+                    <DxButton Text="Pay by Secure Payment Online"
+                  IconCssClass="bi-credit-card menu-icon me-3 h2"
+                  CssClass="col-12 my-2"
+                  Click="@(e => OnPayOnline(e))"
+                  RenderStyle="ButtonRenderStyle.Primary"
+                  RenderStyleMode="ButtonRenderStyleMode.Outline">
+                    </DxButton>
+                    <DxButton Text="Pay by Direct Payment"
+                  IconCssClass="bi-bank menu-icon me-3 h2"
+                  CssClass="col-12 my-2"
+                  Click="@(e => OnMenuSelected(e,PortalMenuSelection.DoMemberPaymentDirectDebit))"
+                  RenderStyle="ButtonRenderStyle.Primary"
+                  RenderStyleMode="ButtonRenderStyleMode.Outline">
+                    </DxButton>
+                    break;
+
+                case PortalMenuSelection.DoMemberPaymentDirectDebit:
+                    <DxFormLayoutGroup Caption="Bank Direct Payment" HeaderCssClass="h4">
+                        <div class="p-2">
+                            <div class="h5">Payment Instruction</div>
+                            <p>Please create a payment using your banking software with the following detail... </p>
+                            <div class="row">
+                                <div class="col col-5"><strong>Amount Due:</strong></div>
+                                <div class="col col-7">@GetFeeAsString()</div>
+                            </div>
+                            <div class="row">
+                                <div class="col col-5"><strong>A/cc Name:</strong></div>
+                                <div class="col col-7">@settings.U3AGroup</div>
+                            </div>
+                            <div class="row">
+                                <div class="col col-5"><strong>A/cc BSB:</strong></div>
+                                <div class="col col-7">@settings.BankBSB</div>
+                            </div>
+                            <div class="row">
+                                <div class="col col-5"><strong>A/cc No:</strong></div>
+                                <div class="col col-7">@settings.BankAccountNo</div>
+                            </div>
+                            <div class="row">
+                                <div class="col col-5"><strong>Desc/Ref:</strong></div>
+                                <div class="col col-7">@($"{loginState.SelectedPerson.FullName} {term.Year}")</div>
+                            </div>
+                            <br />
+                            <p align="center" class="alert alert-info">
+                                <em>
+                                    <strong>Please Note:</strong><br>It is vital that the direct payment be completed with the above detail exactly as shown.
+                                    Doing otherwise will incur unnecessary work for our volunteer staff and delay finalising your payment in our systems.
+                                </em>
+                            </p>
+                        </div>
+                    </DxFormLayoutGroup>
+                    <DxButton Text="Changed your mind? Let's pay online"
+                  IconCssClass="bi-emoji-smile menu-icon me-3 h2"
+                  CssClass="col-12 my-2"
+                  Click="@(e => OnMenuSelected(e,PortalMenuSelection.DoMemberPaymentPreamble))"
+                  RenderStyle="ButtonRenderStyle.Primary"
+                  RenderStyleMode="ButtonRenderStyleMode.Outline">
+                    </DxButton>
+                    break;
+            }
+
+            <DxButton Text="Return to menu"
+                  IconCssClass="bi-door-closed menu-icon me-3 h2"
+                  CssClass="col-12 my-2"
+                  Click="@(e => OnCancel())"
+                  RenderStyle="ButtonRenderStyle.Primary"
+                  RenderStyleMode="ButtonRenderStyleMode.Outline">
+            </DxButton>
+        </div>
+    </DxFormLayout>
+}
+
+@code {
+
+    [CascadingParameter(Name = "QueryResult")]
+    string? QueryResult { get; set; }
+
+    [CascadingParameter]
+    LoginState loginState { get; set; }
+
+    [Parameter]
+    public EventCallback<PortalMenuResult> OnSelectedOptionCompleted { get; set; }
+
+    public U3ADbContext? dbc { get; set; }
+
+    bool IsReady;
+    bool IsSmallLayout;
+    bool showFeesDueToggle;
+    SystemSettings? settings;
+    Term? term;
+    string Title;
+    string AmountDueText;
+    PortalMenuSelection menuSelection;
+    MessageBox? messageBox;
+    Progress progressBar;
+    MemberFeeCalculationService feeService;
+    List<MemberFee> memberFees = new List<MemberFee>();
+
+
+    protected override async Task OnInitializedAsync() {
+        await base.OnInitializedAsync();
+        IsReady = true;
+        using (var dbc = await U3Adbfactory.CreateDbContextAsync()) {
+            term = BusinessRule.CurrentEnrolmentTerm(dbc);
+            if (term == null) term = await BusinessRule.CurrentTermAsync(dbc);
+            settings = await dbc.SystemSettings.FirstOrDefaultAsync();
+        }
+        feeService = new MemberFeeCalculationService();
+        Title = settings?.U3AGroup;
+        menuSelection = PortalMenuSelection.DoMemberPaymentPreamble;
+        IsReady = true;
+    }
+
+    protected override async Task OnParametersSetAsync() {
+        using (var dbc = await U3Adbfactory.CreateDbContextAsync()) {
+            bool hasUnprocessedPayment = await BusinessRule.HasUnporcessedOnlinePayment(dbc, loginState.SelectedPerson);
+            switch (QueryResult) {
+                case "EwaySuccess":
+                    if (hasUnprocessedPayment) {
+                        await GetEwayPaymentResponse();
+                    }
+                    break;
+                case "EwayFail":
+                    if (hasUnprocessedPayment) {
+                        await GetEwayPaymentResponse();
+                    }
+                    break;
+                default:
+                    if (hasUnprocessedPayment) {
+                        await GetEwayPaymentResponse();
+                    }
+                    break;
+            }
+        }
+        decimal fee = await feeService.CalculateFeeAsync(U3Adbfactory, loginState.SelectedPerson);
+        int billingYear = feeService.BillingYear;
+        var payType = "fees payable";
+        if (fee < 0) {
+            fee = Math.Abs(fee);
+            payType = "account credit";
+        }
+        AmountDueText = $"{billingYear} {payType} is: {fee.ToString("c2")}. Click here for details";
+        if (loginState.IsAdminOnBehalfOfMember) await DoShowFeesDue();
+        await base.OnParametersSetAsync();
+    }
+
+    async Task DoShowFeesDue() {
+        if (!showFeesDueToggle) {
+            decimal fee = await feeService.CalculateFeeAsync(U3Adbfactory, loginState.SelectedPerson);
+            memberFees = feeService.MemberFees;
+            showFeesDueToggle = true;
+        }
+        else {
+            showFeesDueToggle = false;
+        }
+        StateHasChanged();
+    }
+
+    async Task OnMenuSelected(MouseEventArgs e, PortalMenuSelection selection) {
+        if (!await AreThereFeesToBePaid()) return;
+        menuSelection = selection;
+        StateHasChanged();
+    }
+
+    async Task ReturnToMenu(PortalMenuResult result) {
+        await OnSelectedOptionCompleted.InvokeAsync(result);
+    }
+
+    async Task OnCancel() {
+        if (loginState.SelectedPerson != null) {
+            await ReturnToMenu(PortalMenuResult.MenuOptionCancelled);
+        }
+        else {
+            NavigationManager.NavigateTo("Identity/Account/Logout", true);
+        }
+    }
+
+    string GetFeeAsString() {
+        var result = Task.Run(() => {
+
+            return CalculateFee();
+
+        }).Result;
+        return result.ToString("c2");
+    }
+
+    async Task<decimal> CalculateFee() {
+        return await feeService.CalculateFeeAsync(U3Adbfactory, loginState.SelectedPerson);
+    }
+
+    async Task OnPayOnline(MouseEventArgs e) {
+        if (!await AreThereFeesToBePaid()) return;
+        await progressBar.ShowSpinnerAsync("Processing");
+        var paymentService = new EwayPaymentService(EwayCnn);
+        using (var dbc = await U3Adbfactory.CreateDbContextAsync()) {
+            try {
+                var email = (!string.IsNullOrWhiteSpace(loginState.LoginEmail))
+                                ? loginState.LoginEmail
+                                : loginState.SelectedPerson.Email;
+                var paymentURL = await paymentService.CreatePayment(dbc,
+                                                loginState.AdminEmail,
+                                                NavigationManager.BaseUri,
+                                                loginState.SelectedPerson,
+                                                email,
+                                                loginState.SelectedPerson.PersonIdentity,
+                                                $"{settings.U3AGroup} {term.Year} membership fees",
+                                                term.Name,
+                                                await CalculateFee()
+                    );
+                if (paymentURL != null) { NavigationManager.NavigateTo(paymentURL); }
+            }
+            catch (Exception ex) {
+                var msg = "<p>An exception has occured attempting to connect to the Online Payment Gateway (Eway).<br/>" +
+                            "We suggest you wait a little and try again later.<br/>" +
+                            "If the issue persists, please contact your adminitraion.<p>" +
+                            "<p>Error details are...<br/>" +
+                            $"{ex.Message}</p>" +
+                            "<p>We appreciate your understanding in this matter.</p>";
+                await messageBox.ShowAsync("Payment Gateway Connection Issue", msg);
+                await OnCancel();
+            }
+        }
+    }
+
+    async Task GetEwayPaymentResponse() {
+        using (var dbContext = U3Adbfactory.CreateDbContext()) {
+            var paymentService = new EwayPaymentService(EwayCnn);
+            if (loginState.SelectedPerson == null) return; // No known bank payments
+            var person = await dbContext.Person.FindAsync(loginState.SelectedPerson.ID);
+            PaymentResult? result = await paymentService.ProcessPaymentResponse(dbContext, loginState.SelectedPerson);
+            if (result != null) {
+                if (result.AccessCode != null && !string.IsNullOrWhiteSpace(result.AuthorisationCode)) {
+                    var receipt = new Receipt() {
+                            Amount = result.Amount,
+                            Date = DateTime.Today,
+                            Description = $"Eway online payment Auth: {result.AuthorisationCode}",
+                            Identifier = $"TransID: {result.TransactionID}",
+                            Person = person
+                        };
+
+                    var processingYear = term.Year;
+                    var minMembershipFee = await feeService.CalculateMinimumFeePayableAsync(U3Adbfactory, person);
+
+                    // Special Rule: set Financial To if amount paid greater than minimum amount
+                    var previouslyPaid = BusinessRule.GetPreviouslyPaidAsync(dbContext, person.ID, processingYear, DateTime.Now);
+                    if (receipt.Amount + previouslyPaid >= minMembershipFee) {
+                        receipt.FinancialTo = (person.FinancialTo >= processingYear) ? person.FinancialTo : processingYear;
+                    }
+                    else { receipt.FinancialTo = person.FinancialTo; }
+
+                    // Special Rule: reset join date if difference between current Financial To and previous is more than 1 year
+                    if (receipt.Person.DateJoined != null) {
+                        receipt.DateJoined = (receipt.FinancialTo - receipt.Person.PreviousFinancialTo > 1) ? receipt.Date : receipt.Person.DateJoined.Value;
+                    }
+                    else { receipt.DateJoined = receipt.Date; }
+
+                    receipt.ProcessingYear = processingYear;
+                    person.PreviousFinancialTo = person.FinancialTo;
+                    person.PreviousDateJoined = person.DateJoined;
+                    person.FinancialTo = receipt.FinancialTo;
+                    person.DateJoined = receipt.DateJoined;
+                    await dbContext.AddAsync(receipt);
+                    dbContext.Update(person);
+                }
+                await paymentService.SetPaymentStatusProcessed(dbContext, person);
+                await dbContext.SaveChangesAsync();
+            }
+        }
+    }
+
+    async Task<bool> AreThereFeesToBePaid() {
+        bool result = true;
+        var fee = await CalculateFee();
+        if (fee == 0) {
+            await messageBox.ShowOkOnlyAsync("There's nothing to pay", "Your membership fees are fully paid.");
+            result = false;
+        }
+        if (fee < 0) {
+            await messageBox.ShowOkOnlyAsync("There's nothing to pay",
+                    $"Your membership fees are {Math.Abs(fee).ToString("c2")} in credit." +
+                    "<br/>You may be entitled to a refund. Please request it from the office.");
+            result = false;
+        }
+        return result;
+    }
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+
+}

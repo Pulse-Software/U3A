@@ -1,0 +1,246 @@
+﻿@page "/ReceiptMnt"
+
+@inject NavigationManager NavManager
+@inject IJSRuntime js
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@implements IDisposable
+
+
+@attribute [Authorize]
+
+@if (!IsReady) {
+    <p><em>Loading...</em></p>
+}
+else {
+
+    <div class="row  align-content-start">
+        <h3>Receipt Adjustment</h3>
+    </div>
+    <div class="row">
+        <div class="col-10 d-none d-md-inline">
+            This procedure is intended to make adjustments and correct errors only, as
+            <br />Receipts are normally created via <em>Bank Data Import</em> or the <em>Online Payment Gateway</em> (Member Portal).
+            <br />At all times, the total of receipts displayed below must balance actual monies received.
+            <br /><strong>Note: </strong>This procedure is intended to correct receipt transactions only. Use <em>Fee Adjustment</em> to adjust fees owing.
+            <br /><strong>Hint: </strong>Group by date to display sub-totals on a daily basis.
+        </div>
+        <div class="col col-lg-2">
+            <YearComponent @ref="@yearComponent" OnYearChangedEvent="SelectedYearChanged" />
+        </div>
+
+    </div>
+    <br />
+
+    <ErrorPopup @ref="@ErrorPopup" PopupHeader="@ErrorHeader" PopupMessage="@ErrorMessage" />
+    <MessageBox @ref="@messageBox" PopupWidth="@messageBoxWidth" />
+    <Progress @ref="@ProgressBar" />
+
+    <GridToolbar @ref="Toolbar" LinkedGrid=@mainGrid />
+
+    <DxGrid Data="@Receipts" @ref=@mainGrid CssClass="h-75"
+        ColumnResizeMode="GridColumnResizeMode.ColumnsContainer"
+        GroupFooterDisplayMode="GridGroupFooterDisplayMode.Auto"
+        ShowFilterRow="false"
+        ShowAllRows="false"
+        KeyFieldName="ID"
+        PageSize="30"
+        PageSizeSelectorVisible="true"
+        PageSizeSelectorItems="@(new int[] {10, 20,30, 40,60,80, 100, 200,400 })"
+        PageSizeSelectorAllRowsItemVisible="true"
+        PagerSwitchToInputBoxButtonCount="10"
+        PagerVisibleNumericButtonCount="10"
+        PagerVisible="true"
+        PopupEditFormCssClass="popup-width"
+        PopupEditFormHeaderText="Add/Edit Receipt"
+        ValidationEnabled="true"
+        CustomizeEditModel="OnCustomizeEditModel"
+        EditMode="GridEditMode.PopupEditForm"
+        DataItemDeleting="Grid_DataItemDeleting"
+        EditModelSaving="Grid_EditModelSaving">
+        <Columns>
+            <DxGridCommandColumnEx @ref="GridCommandColumn" Width="10rem"
+                             EditButtonVisible="true" DeleteButtonVisible="true" />
+            <DxGridDataColumn Caption="First Name" FieldName="Person.FirstName" Width="10rem" />
+            <DxGridDataColumn Caption="Last Name" FieldName="Person.LastName" Width="10rem" />
+            <DxGridDataColumn Caption="Date" FieldName="Date" DisplayFormat="@constants.SHORT_DATE_FORMAT" Width="8rem" />
+            <DxGridDataColumn Caption="Description" FieldName="Description" />
+            <DxGridDataColumn Caption="Identifier" FieldName="Identifier" />
+            <DxGridDataColumn Caption="Amount" FieldName="Amount" DisplayFormat="{0:c2}" />
+        </Columns>
+        <GroupSummary>
+            <DxGridSummaryItem SummaryType="GridSummaryItemType.Count"
+                           FieldName="Description"
+                           FooterColumnName="Identifier" />
+            <DxGridSummaryItem SummaryType="GridSummaryItemType.Sum"
+                           ValueDisplayFormat="{0:c2}"
+                           FieldName="Amount"
+                           FooterColumnName="Amount" />
+        </GroupSummary>
+        <TotalSummary>
+            <DxGridSummaryItem SummaryType="GridSummaryItemType.Count" FieldName="Description" FooterColumnName="Identifier" />
+            <DxGridSummaryItem SummaryType="GridSummaryItemType.Sum" ValueDisplayFormat="{0:c2}" FieldName="Amount" />
+        </TotalSummary>
+
+        <EditFormTemplate Context="EditFormContext">
+            @{
+                var editItem = (Receipt)EditFormContext.EditModel;
+            }
+            <DxFormLayout>
+                <DxFormLayoutItem ColSpanMd="12">
+                    <ValidationSummary />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Received From" ColSpanMd="12">
+                    <DxComboBox Data="Persons"
+                            ListRenderMode="ListRenderMode.Virtual"
+                            FilteringMode="DataGridFilteringMode.Contains"
+                            ClearButtonDisplayMode="DataEditorClearButtonDisplayMode.Auto"
+                            @bind-Value="editItem.Person"
+                            TextFieldName="@nameof(Person.PersonSummary)">
+                        <DxListEditorColumn FieldName="@nameof(Person.LastName)"
+                                        Caption="Last Name" />
+                        <DxListEditorColumn FieldName="@nameof(Person.FirstName)"
+                                        Caption="First Name" />
+                        <DxListEditorColumn FieldName="@nameof(Person.Mobile)"
+                                        Caption="Mobile" />
+                        <DxListEditorColumn FieldName="@nameof(Person.Email)"
+                                        Caption="Email" />
+                    </DxComboBox>
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Date" ColSpanMd="12">
+                    <DxDateEdit @bind-Date="@editItem.Date" Mask=@constants.STD_DATE_FORMAT>
+                    </DxDateEdit>
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Description" ColSpanMd="12">
+                    <DxTextBox @bind-Text="@editItem.Description" />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Identifier" ColSpanMd="12">
+                    <DxTextBox @bind-Text="@editItem.Identifier" />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Amount" ColSpanMd="12">
+                    <DxMaskedInput @bind-Value="@editItem.Amount" Mask="@NumericMask.Currency" />
+                </DxFormLayoutItem>
+            </DxFormLayout>
+        </EditFormTemplate>
+    </DxGrid>
+
+}<style>
+     .popup-width {
+         min-width: 40rem;
+     }
+
+</style>
+
+@code {
+    bool IsReady;
+    List<Receipt>? Receipts { get; set; }
+    IEnumerable<Person>? Persons { get; set; }
+    SystemSettings settings;
+    YearComponent? yearComponent;
+    Receipt originalReceipt;
+    int ProcessingYear;
+
+    DxGridCommandColumnEx? GridCommandColumn;
+    MessageBox? messageBox;
+    Progress? ProgressBar;
+    string? messageBoxWidth;
+
+    IGrid? mainGrid { get; set; }
+    ErrorPopup? ErrorPopup { get; set; }
+    GridToolbar? Toolbar;
+    string? ErrorHeader;
+    string? ErrorMessage;
+    U3ADbContext? dbc { get; set; }
+
+    protected override async Task OnInitializedAsync() {
+        // wire up the data
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+        settings = dbc.SystemSettings.FirstOrDefault();
+        IsReady = true;
+    }
+
+    void OnCustomizeEditModel(GridCustomizeEditModelEventArgs e) {
+        var editModel = (Receipt)e.EditModel;
+        if (e.IsNew) {
+            editModel.ProcessingYear = ProcessingYear;
+            editModel.Date = DateTime.Today;
+            editModel.Description = "Manual Receipt Adjustment";
+        }
+        else {
+            originalReceipt = new Receipt();
+            editModel.CopyTo(originalReceipt);
+            originalReceipt.Person = dbc.Person.Find(editModel.Person.ID);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender) {
+        if (firstRender) {
+            await RefreshData();
+        }
+        if (Toolbar != null && mainGrid != null) { Toolbar.LinkedGrid = mainGrid; }
+        await base.OnAfterRenderAsync(firstRender);
+    }
+
+    async Task Grid_EditModelSaving(GridEditModelSavingEventArgs e) {
+        var editModel = (Receipt)e.EditModel;
+        if (!e.Cancel) {
+            // Re-query a data item from the store.
+            var dataItem = e.IsNew
+                                ? new Receipt()
+                                : dbc.Receipt.Find(editModel.ID);
+            // Assign changes from the edit model to the data item.
+            if (dataItem != null) {
+                editModel.CopyTo(dataItem);
+                dataItem.Person = dbc.Person.Find(editModel.Person.ID);
+                // Post changes to the database.
+                if (e.IsNew)
+                {
+                    await BusinessRule.SetPersonDetailsForNewReceipt(dbc, dataItem);
+                    await dbc.AddAsync(dataItem);
+                }
+                else
+                    await BusinessRule.SetPersonDetailsForEditedReceipt(dbc, originalReceipt, dataItem);
+                if (await SaveChangesAsync()) await RefreshData();
+            }
+        }
+    }
+
+    async Task Grid_DataItemDeleting(GridDataItemDeletingEventArgs e) {
+        Receipt receipt = (Receipt)e.DataItem;
+        await BusinessRule.ResetPersonDetailsForDeletedReceipt(dbc, receipt);
+        dbc.Remove(receipt);
+        await SaveChangesAsync();
+        await RefreshData();
+    }
+
+    async Task<bool> SaveChangesAsync() {
+        bool result = false;
+        try {
+            // Post changes to the database.
+            await dbc.SaveChangesAsync();
+            result = true;
+        }
+        catch (Exception ex) {
+            ErrorHeader = "Save to database error";
+            ErrorMessage = Helpers.GetErrorMessage(ex);
+            await ErrorPopup.ShowPopupAsync();
+            dbc?.ChangeTracker?.Clear();
+        }
+        return result;
+    }
+
+
+    async Task SelectedYearChanged(int NewYear) {
+        await RefreshData();
+    }
+
+    async Task RefreshData() {
+        ProcessingYear = yearComponent.Year;
+        if (Persons == null) Persons = await BusinessRule.SelectablePersonsIncludeUnfinancialAsync(dbc);
+        Receipts = await BusinessRule.EditableReceiptsForYearAsync(dbc, ProcessingYear);
+        StateHasChanged();
+    }
+
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+}

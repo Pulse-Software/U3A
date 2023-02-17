@@ -1,0 +1,212 @@
+﻿@page "/BringForwardCourses"
+
+@inject NavigationManager NavMan
+@inject IJSRuntime js
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@implements IDisposable
+
+
+@attribute [Authorize]
+
+@if (!IsReady) {
+    <p><em>Loading...</em></p>
+}
+else {
+
+    <div class="row">
+        <div class="col col-lg-10">
+            <h3>Bring Forward Courses</h3>
+            <p>
+                Create Courses for the new year by copying selected course details from the current year.<br />
+                This procedure may be executed as often as required. Course details will only be copied if they do not already exist in the new year.
+            </p>
+        </div>
+        <div class="card col col-lg-2 text-center">
+            <h3>@SetYear()</h3>
+            <DxButton Text="Create Courses" RenderStyle="ButtonRenderStyle.Primary" Click="OnCreateClick" CssClass="mb-2" />
+        </div>
+    </div>
+
+
+    <br />
+    <MessageBox @ref="@messageBox" />
+    <Progress @ref="@ProgressBar" />
+
+    <ErrorPopup @ref="@ErrorPopup" PopupHeader="@ErrorHeader" PopupMessage="@ErrorMessage" />
+
+    <GridToolbar @ref="Toolbar" LinkedGrid=@mainGrid />
+
+    <DxGrid Data="@Courses" @ref=@mainGrid CssClass="h-75"
+        AutoCollapseDetailRow="true"
+        @bind-SelectedDataItems="@SelectedDataItems"
+        ColumnResizeMode="GridColumnResizeMode.ColumnsContainer"
+        ShowFilterRow="false"
+        ShowAllRows="false"
+        KeyFieldName="ID"
+        PageSize="100"
+        PageSizeSelectorVisible="true"
+        PageSizeSelectorItems="@(new int[] {10,15, 20, 40,60,80, 100, 200,400 })"
+        PageSizeSelectorAllRowsItemVisible="true"
+        PagerSwitchToInputBoxButtonCount="10"
+        PagerVisibleNumericButtonCount="10"
+        PagerVisible="true">
+        <Columns>
+            <DxGridSelectionColumn />
+            <DxGridDataColumn Caption="ID" FieldName="ConversionID" Width="3rem" DisplayFormat="#####" />
+            <DxGridDataColumn Caption="Name" FieldName="Name" Width="20rem" />
+            <DxGridDataColumn Caption="Type" FieldName="CourseType.Name" />
+            <DxGridDataColumn Caption="Participants Enrol In" FieldName="CourseParticipationType.ShortName" />
+            <DxGridDataColumn Caption="Fee / Year" FieldName="CourseFeePerYear" DisplayFormat="{0:c}" />
+            <DxGridDataColumn Caption="Fee / Term" FieldName="CourseFeePerTerm" DisplayFormat="{0:c}" />
+            <DxGridDataColumn Caption="Duration" FieldName="Duration" DisplayFormat="{0:n2}" />
+            <DxGridDataColumn Caption="Required Participants" FieldName="RequiredStudents" DisplayFormat="{0:n0}" />
+            <DxGridDataColumn Caption="Maximum Allowed" FieldName="MaximumStudents" DisplayFormat="{0:n0}" />
+        </Columns>
+        <DetailRowTemplate>
+            <ClassDetail Course="(Course)context.DataItem"
+                     AllowEdit="false" />
+        </DetailRowTemplate>
+    </DxGrid>
+
+}
+<style>
+    .popup-width {
+        min-width: 55rem;
+    }
+
+</style>
+
+
+
+@code {
+    bool IsReady;
+    IEnumerable<CourseParticipationType> CourseParticpationTypes { get; set; }
+    IEnumerable<Person> Persons { get; set; }
+    IEnumerable<Venue> Venues { get; set; }
+    IEnumerable<WeekDay> WeekDays { get; set; }
+    List<Course> Courses { get; set; }
+    List<CourseType> CourseTypes { get; set; }
+    MessageBox? messageBox;
+    YearComponent? yearComponent;
+    IReadOnlyList<object> SelectedDataItems { get; set; }
+
+    DxGridCommandColumnEx? GridCommandColumn;
+
+    CourseDetail courseDetail { get; set; }
+    IGrid? mainGrid { get; set; }
+    GridToolbar? Toolbar;
+    Progress ProgressBar;
+
+    ErrorPopup? ErrorPopup { get; set; }
+    string ErrorHeader;
+    string ErrorMessage;
+    Term currentTerm;
+
+
+    U3ADbContext dbc { get; set; }
+
+    protected override async Task OnInitializedAsync() {
+        // wire up the data
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+        CourseParticpationTypes = await BusinessRule.SelectableCourseParticipationTypesAsync(dbc);
+        CourseTypes = await BusinessRule.SelectableCourseTypesAsync(dbc);
+        Venues = await BusinessRule.SelectableVenuesAsync(dbc);
+        WeekDays = await BusinessRule.SelectableWeekdaysAsync(dbc);
+        currentTerm = await BusinessRule.CurrentTermAsync(dbc);
+        if (currentTerm != null)
+        {
+            Courses = await BusinessRule.EditableCoursesAsync(dbc, currentTerm.Year);
+            Persons = await BusinessRule.SelectablePersonsAsync(dbc,currentTerm);
+        }
+        IsReady = true;
+    }
+    protected override async Task OnAfterRenderAsync(bool firstRender) {
+        // wire up the toolbar
+        base.OnAfterRender(firstRender);
+        if (!firstRender) {
+            if (Toolbar != null && mainGrid != null) { Toolbar.LinkedGrid = mainGrid; }
+            if (currentTerm == null) {
+                await messageBox.ShowOkOnlyAsync("Current Term is undefined", "Use <strong>Add/Edit Enrolment Terms</strong> to set the current term.");
+                NavMan.NavigateTo("/");
+            }
+        }
+    }
+
+    MarkupString SetYear() {
+        var result = new MarkupString(string.Empty);
+        if (currentTerm != null) result = new MarkupString($"From {currentTerm.Year} <br/>to {currentTerm.Year + 1}");
+        return result;
+    }
+
+    async Task OnCreateClick() {
+        if (SelectedDataItems == null || SelectedDataItems.Count <= 0) {
+            await messageBox.ShowOkOnlyAsync("Make a Selection", "Select one or more courses to copy into the new year.");
+            return;
+        }
+        Course newCourse;
+        Class newClass;
+        int newYear = currentTerm.Year + 1;
+        int coursesProcessed = 0;
+        int coursesNotCopied = 0;
+        await ProgressBar.ShowAsync("Copying ... Please Wait", SelectedDataItems.Count);
+        foreach (Course course in SelectedDataItems.Cast<Course>()) {
+            var onfile = dbc.Course.Where(x => x.Year == newYear && x.Name == course.Name).FirstOrDefault();
+            if (onfile == null && course.Classes.Count > 0) {
+                newCourse = new Course();
+                course.CopyTo(newCourse);
+                newCourse.CourseParticipationType = dbc.CourseParticpationType.Find(course.CourseParticipationType.ID);
+                foreach (Class c in course.Classes) {
+                    if (newCourse.Classes.Where(x => x.ID == c.ID).Count() == 0) {
+                        newClass = new Class();
+                        c.CopyTo(newClass);
+                        newClass.Venue = dbc.Venue.Find(c.VenueID);
+                        if (c.StartDate.HasValue) {
+                            newClass.OnDay = dbc.WeekDay.Find((int)c.StartDate.Value.DayOfWeek);
+                        }
+                        else {
+                            newClass.OnDay = dbc.WeekDay.Find(c.OnDayID);
+                        }
+                        newClass.Occurrence = dbc.Occurrence.Find(c.OccurrenceID);
+                        if (c.Leader != null) { newClass.Leader = dbc.Person.Find(c.LeaderID); }
+                        var t = c.StartTime;
+                        newClass.StartTime = new DateTime(1, 1, 1, t.Hour, t.Minute, 0);
+                        newClass.ID = Guid.Empty;
+                        newCourse.Classes.Add(newClass);
+                    }                    
+                }
+                newCourse.ID = Guid.Empty;
+                newCourse.Year = newYear;
+                await dbc.AddAsync(newCourse);
+            }
+            else coursesNotCopied++;
+            coursesProcessed++;
+            await ProgressBar.SetValueAsync(coursesProcessed);
+        }
+        await SaveChangesAsync();
+        await ProgressBar.Close();
+        var msg = $"{coursesProcessed - coursesNotCopied} courses have been copied to the new year.";
+        if (coursesNotCopied > 0) msg += $"<br/>{coursesNotCopied} courses were not copied because they already exist in the new year or there were no class records.";
+        await messageBox.ShowOkOnlyAsync("Copy to New Year Complete", msg);
+
+    }
+
+    async Task<bool> SaveChangesAsync() {
+        bool result = false;
+        try {
+            // Post changes to the database.
+            await dbc.SaveChangesAsync();
+            result = true;
+        }
+        catch (Exception ex) {
+            ErrorHeader = "Save to database error";
+            ErrorMessage = Helpers.GetErrorMessage(ex);
+            await ErrorPopup.ShowPopupAsync();
+            dbc?.ChangeTracker?.Clear();
+        }
+        return result;
+    }
+
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+}

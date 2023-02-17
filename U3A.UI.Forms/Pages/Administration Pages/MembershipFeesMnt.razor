@@ -1,0 +1,146 @@
+﻿@page "/MembershipFeesMnt"
+
+@inject IJSRuntime js
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@inject NavigationManager NavigationManager
+@implements IDisposable
+
+
+@attribute [Authorize]
+
+@if (!IsReady) {
+    <p><em>Loading...</em></p>
+}
+else {
+
+    <div class="container h-100 m-auto col-6">
+        <div class="row  align-content-start">
+            <h3>Membership Fees</h3>
+        </div>
+        <div class="row">
+            <div class="d-none d-md-inline">
+                Organisation-wide parameters to control the calculation of membership fees.
+            </div>
+
+        </div>
+
+        <ErrorPopup @ref="@ErrorPopup" PopupHeader="@ErrorHeader" PopupMessage="@ErrorMessage" />
+
+        <EditForm Model="@systemSettings" OnValidSubmit=@ValidFormSubmitted Context="editContext">
+            <DataAnnotationsValidator />
+            <ValidationSummary />
+            <DxFormLayout>
+                <DxFormLayoutGroup Caption="Membership Fees" ColSpanLg="12">
+                    <DxFormLayoutItem Caption="Full Year Membership Fee" ColSpanMd="12">
+                        <DxMaskedInput @bind-Value="@systemSettings.MembershipFee" Mask="@NumericMask.Currency" />
+                    </DxFormLayoutItem>
+                    <DxFormLayoutItem Caption="Term 2 Membership Fee" ColSpanMd="12">
+                        <DxMaskedInput @bind-Value="@systemSettings.MembershipFeeTerm2" Mask="@NumericMask.Currency" />
+                    </DxFormLayoutItem>
+                    <DxFormLayoutItem Caption="Term 3 Membership Fee" ColSpanMd="12">
+                        <DxMaskedInput @bind-Value="@systemSettings.MembershipFeeTerm3" Mask="@NumericMask.Currency" />
+                    </DxFormLayoutItem>
+                    <DxFormLayoutItem Caption="Term 4 Membership Fee" ColSpanMd="12">
+                        <DxMaskedInput @bind-Value="@systemSettings.MembershipFeeTerm4" Mask="@NumericMask.Currency" />
+                    </DxFormLayoutItem>
+                    <DxFormLayoutItem Caption="Mail Correspondance Surcharge" ColSpanMd="12">
+                        <DxMaskedInput @bind-Value="@systemSettings.MailSurcharge" Mask="@NumericMask.Currency" />
+                    </DxFormLayoutItem>
+                </DxFormLayoutGroup>
+                <DxFormLayoutGroup Caption="Complimentary Membership Parameters" ColSpanLg="12">
+                    <DxFormLayoutItem Caption="Include Membership Fee In Complimentary?" ColSpanMd="12">
+                        <DxCheckBox @bind-Checked="@systemSettings.IncludeMembershipFeeInComplimentary" />
+                    </DxFormLayoutItem>
+                    <DxFormLayoutItem Caption="Include Mail Surcharge In Complimentary?" ColSpanMd="12">
+                        <DxCheckBox @bind-Checked="@systemSettings.IncludeMailSurchargeInComplimentary" />
+                    </DxFormLayoutItem>
+                    <DxFormLayoutItem Caption="Include Course Fees Per Year In Complimentary?" ColSpanMd="12">
+                        <DxCheckBox @bind-Checked="@systemSettings.IncludeCourseFeePerYearInComplimentary" />
+                    </DxFormLayoutItem>
+                    <DxFormLayoutItem Caption="Include Course Fees Per Term In Complimentary?" ColSpanMd="12">
+                        <DxCheckBox @bind-Checked="@systemSettings.IncludeCourseFeePerTermInComplimentary" />
+                    </DxFormLayoutItem>
+                    <DxFormLayoutItem Caption="Maximum Leader Enrolments In Complimentary?" ColSpanMd="12">
+                        <DxSpinEdit @bind-Value="@systemSettings.LeaderMaxComplimentaryCourses" />
+                    </DxFormLayoutItem>
+                </DxFormLayoutGroup>
+                <DxFormLayoutItem ColSpanMd="12">
+                    <Template>
+                        <DxButton SubmitFormOnClick="true" Text="Submit" RenderStyle="@ButtonRenderStyle.Primary" />
+                        <DxButton SubmitFormOnClick="false" Text="Cancel" RenderStyle="@ButtonRenderStyle.Secondary" Click="@Close" />
+                    </Template>
+                </DxFormLayoutItem>
+            </DxFormLayout>
+        </EditForm>
+    </div>
+}
+@code {
+    bool IsReady = false;
+    List<string> AutoEnrolAllocationMethods;
+    int ActiveTabIndex { get; set; } = 0;
+    private SystemSettings systemSettings { get; set; }
+    U3ADbContext? dbc { get; set; }
+
+    internal ErrorPopup? ErrorPopup { get; set; }
+    internal string? ErrorHeader;
+    internal string? ErrorMessage;
+
+    protected override async Task OnInitializedAsync() {
+        // wire up the data
+        AutoEnrolAllocationMethods = new List<string>();
+        AutoEnrolAllocationMethods.Add("Random");
+        AutoEnrolAllocationMethods.Add("First In Wins");
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+        systemSettings = await dbc.SystemSettings.FirstOrDefaultAsync();
+        if (systemSettings == null) { 
+            systemSettings = new SystemSettings() {
+                AutoEnrolNewParticipantPercent = 15M,
+                AutoEnrolRemainderMethod = "Random",
+                    MailLabelTopMargin = 10,
+                    MailLabelBottomMargin = 0.0,
+                    MailLabelLeftMargin = 0.79,
+                    MailLabelRightMargin = 0.0,
+                    MailLabelWidth = 64,
+                    MailLabelHeight = 25
+                };
+        }
+
+        IsReady = true;
+    }
+
+    async void ValidFormSubmitted(EditContext editContext) {
+        bool isNew = false;
+        var editModel = (SystemSettings)editContext.Model;
+        // Re-query a data item from the store.
+        var dataItem = dbc.SystemSettings.Find(editModel.ID);
+        if (dataItem == null) {
+            dataItem = new SystemSettings();
+            isNew = true;
+        }
+        // Assign changes from the edit model to the data item.
+        if (dataItem != null) {
+            editModel.CopyTo(dataItem);
+            try {
+                // Post changes to the database.
+                if (isNew) await dbc.AddAsync(dataItem);
+                await dbc.SaveChangesAsync();
+                Close();
+            }
+            catch (Exception ex) {
+                ErrorHeader = "Save to database error";
+                ErrorMessage = Helpers.GetErrorMessage(ex);
+                await ErrorPopup.ShowPopupAsync();
+                dbc?.ChangeTracker?.Clear();
+            }
+        }
+    }
+
+    void Close() {
+        NavigationManager.NavigateTo("/");
+    }
+
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+
+}

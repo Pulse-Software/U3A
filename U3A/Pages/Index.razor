@@ -1,0 +1,166 @@
+﻿@page "/"
+@page "/{QueryResult?}"
+
+@using U3A.UI.Forms
+@using Microsoft.AspNetCore.Http
+@using Finbuckle.MultiTenant
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity;
+@using Microsoft.JSInterop
+@using Finbuckle.MultiTenant
+@using U3A.UI.Forms.Pages.MembersPortal
+@using U3A.UI.Forms.Pages.Participation_Pages
+@using U3A.Services
+@using Microsoft.AspNetCore.Components.Server.Circuits
+
+@inject CircuitHandler circuitHandler
+
+@inject IJSRuntime js
+@inject UserManager<IdentityUser> UserManager
+@inject RoleManager<IdentityRole> RoleManager
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@inject Blazored.LocalStorage.ILocalStorageService localStorage
+@inject TenantInfoEx tenantInfo
+@inject NavigationManager navMan
+@inject IWebHostEnvironment env
+@implements IDisposable
+
+@if (@homePage == "") {
+    <p><em>Loading...</em></p>
+}
+else {
+    <DxLayoutBreakpoint DeviceSize="DeviceSize.XSmall"
+                    @bind-IsActive="@IsMobileLayout" />
+
+    <CascadingValue Value=@openCircuits Name="OpenCircuits">
+        <CascadingValue Value="@LoginState">
+            <CascadingValue Value="QueryResult" Name="QueryResult">
+                <div class="container-fluid">
+                    <div class="row">
+                        @if (hasRole) {
+                            @if (QueryResult != null) {
+                                <AdminMemberPortal />
+                            }
+                            else {
+                                <div class="input-group">
+                                    <a class="flex-grow-1" id="exportMsi" href="U3A.Setup.msi" download
+                                            role="link" target="=_top">Download the U3A Desktop app (Windows Only)</a>
+                                    <div class="flex-grow-1 text-end">@($"There are {openCircuits} users logged in.")</div>
+                                </div>
+                                <div class="shadow card col col-12 m-1">
+                                    <iframe src="@homePage" width="100%" class="iframe-height"></iframe>
+                                </div>
+                            }
+                        }
+                        else {
+                            <MemberPortal />
+                        }
+                    </div>
+                </div>
+            </CascadingValue>
+        </CascadingValue>
+    </CascadingValue>
+}
+
+<style>
+    .iframe-height {
+        height: 90vh;
+        border-style: none;
+    }
+
+</style>
+
+
+@code {
+    [CascadingParameter]
+    Task<AuthenticationState> authenticationStateTask { get; set; }
+
+    [Parameter]
+    public string QueryResult { get; set; }
+
+    public int openCircuits { get; set; }
+
+    public LoginState? LoginState { get; set; }
+
+    IEnumerable<IdentityRole> Roles { get; set; }
+    U3ADbContext dbc { get; set; }
+
+    bool hasRole = false;
+
+    bool IsMobileLayout { get; set; }
+    string homePage = "";
+    string localTime;
+
+    List<string> nameOfRoles = new List<string>() { "Security Administrator",
+                                                "System Administrator",
+                                                "Course and Class",
+                                                "Membership",
+                                                "Accounting",
+                                                 "Report View"};
+    string superAdmin = "SuperAdmin@U3A.com.au";
+
+    protected override async Task OnInitializedAsync() {
+        await base.OnInitializedAsync();
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+        var hasSecurityAdmin = false;
+        // Ensure all roles are created
+        foreach (string n in nameOfRoles) {
+            if (await RoleManager.FindByNameAsync(n) == null) {
+                await RoleManager.CreateAsync(new IdentityRole() { Name = n });
+            }
+        }
+        // Do we have a user in the security admin role
+        var role = await dbc.Roles.AsNoTracking().Where(x => x.Name == nameOfRoles[0]).FirstAsync(); //super admin
+        hasSecurityAdmin = await dbc.UserRoles.AsNoTracking().AnyAsync(r => r.RoleId == role.Id);
+        if (!hasSecurityAdmin) {
+            //a hasher to hash the password before seeding the user to the db
+            var hasher = new PasswordHasher<IdentityUser>();
+            // Get the security admin or create if not exists
+            var sAdmin = await UserManager.FindByEmailAsync(superAdmin);
+            if (sAdmin == null) {
+                sAdmin = new IdentityUser() {
+                        Email = superAdmin,
+                        UserName = superAdmin,
+                        EmailConfirmed = true,
+                        PasswordHash = hasher.HashPassword(null, "U3A Rocks!!")
+                    };
+                await UserManager.CreateAsync(sAdmin);
+            }
+            // Add security admin permission
+            await UserManager.AddToRoleAsync(sAdmin, nameOfRoles[0]);
+        }
+
+        Roles = dbc.Roles.ToList();
+        if (tenantInfo != null) { homePage = tenantInfo.Website; }
+
+        (circuitHandler as CircuitHandlerService).CircuitsChanged += HandleCircuitsChanged;
+        openCircuits = (circuitHandler as CircuitHandlerService).Circuits.Count;
+
+    }
+
+    protected override async Task OnParametersSetAsync() {
+        await base.OnParametersSetAsync();
+        if (authenticationStateTask == null) { navMan.NavigateTo("Identity/Account/Logout", true); }
+        var authenticationState = await authenticationStateTask;
+        hasRole = false;
+        foreach (var r in Roles) {
+            if (authenticationState.User.IsInRole(r.Name)) {
+                hasRole = true;
+                break;
+            }
+        }
+        var authEmail = authenticationState.User.Identity.Name;
+        LoginState = new LoginState(authEmail, U3Adbfactory);
+    }
+
+    public void HandleCircuitsChanged(object sender, EventArgs args) {
+        openCircuits = (circuitHandler as CircuitHandlerService).Circuits.Count;
+    }
+
+    public void Dispose() {
+        (circuitHandler as CircuitHandlerService).CircuitsChanged -= HandleCircuitsChanged;
+        dbc?.Dispose();
+    }
+
+}

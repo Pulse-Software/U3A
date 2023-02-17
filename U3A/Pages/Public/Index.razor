@@ -1,0 +1,190 @@
+﻿@page "/Public/"
+
+@layout BasicLayout
+
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.JSInterop
+@using Microsoft.AspNetCore.Identity
+@using U3A.Services
+
+@inherits LayoutComponentBase
+
+@inject NavigationManager NavigationManager
+@inject Blazored.LocalStorage.ILocalStorageService localStorage
+@inject UserManager<IdentityUser> UserManager
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@inject IJSRuntime js
+
+<DxLayoutBreakpoint DeviceSize="DeviceSize.XSmall"
+                    @bind-IsActive="@IsXtraSmallLayout" />
+<DxLayoutBreakpoint DeviceSize="DeviceSize.Small"
+                    @bind-IsActive="@IsSmallLayout" />
+<DxLayoutBreakpoint DeviceSize="DeviceSize.Medium"
+                    @bind-IsActive="@IsMediumLayout" />
+<DxLayoutBreakpoint DeviceSize="DeviceSize.Large"
+                    @bind-IsActive="@IsLargeLayout" />
+<DxLayoutBreakpoint DeviceSize="DeviceSize.XLarge"
+                    @bind-IsActive="@IsXtraLargeLayout" />
+
+<div class="webkit-prefix">
+
+    @*    @if (IsXtraSmallLayout) {
+    <p>Exra Small</p>
+    }
+    @if (IsSmallLayout) {
+    <p>Small</p>
+    }
+    @if (IsMediumLayout) {
+    <p>Medium</p>
+    }
+    @if (IsLargeLayout) {
+    <p>Large</p>
+    }
+    @if (IsXtraLargeLayout) {
+    <p>Exra Large</p>
+    }
+    *@
+    @if ((AppleOSversion?[0] <= 12)) {
+        <div class="card text-center p-4 alert-danger">
+            <h3>Apple OS: Safari version: @AppleOSversion?[0].@AppleOSversion?[1].@AppleOSversion?[2] </h3>
+            <p>
+                We're sorry. <strong>Member Portal</strong> is a new web application that requires
+                a modern browser. Your Safari browser is less than the minimum supported version of 13.1.0
+                and therefore cannot be used.
+            </p>
+            <p>
+                Unlike other operating systems (Windows, Android, Linux, Unix etc), Apple does not provide browser updates for older devices.
+                You will therefore need to use another device/PC to access our portal.
+            </p>
+            <p>However, you can access our Class Schedule but with reduced functionality.</p>
+            <button type="button" class="mb-4" @onclick="@OnReportClick">Click to view Class Schedule</button>
+            <button type="button" class="mb-4" @onclick="@OnClose">Return to website</button>
+        </div>
+    }
+        <DxGridLayout CssClass="pageBackColor">
+            <Rows>
+                @if (IsXtraSmallLayout || IsSmallLayout || IsMediumLayout || IsLargeLayout) {
+                    <DxGridLayoutRow Areas="header" Height="auto" />
+                    <DxGridLayoutRow Areas="content" />
+                    <DxGridLayoutRow Areas="footer" Height="1px" />
+                }
+                else {
+                    <DxGridLayoutRow Areas="Left-Blank header Right-Blank" Height="auto" />
+                    <DxGridLayoutRow Areas="Left-Blank content Right-Blank" />
+                    <DxGridLayoutRow Areas="footer footer footer" Height="1rem" />
+                }
+            </Rows>
+            <Columns>
+                @{
+                    if (IsXtraSmallLayout || IsSmallLayout || IsMediumLayout || IsLargeLayout) {
+                        <DxGridLayoutColumn Width="100%" />
+                    }
+                    if (IsXtraLargeLayout) {
+                        <DxGridLayoutColumn Width="10%" />
+                        <DxGridLayoutColumn Width="80%" />
+                        <DxGridLayoutColumn Width="10%" />
+                    }
+                }
+            </Columns>
+            <Items>
+                <DxGridLayoutItem Area="Left-Blank" CssClass="d-print-none" />
+                <DxGridLayoutItem Area="header" CssClass="pt-1 pb-2">
+                    <Template>
+                        <PortalHeader />
+                    </Template>
+                </DxGridLayoutItem>
+                <DxGridLayoutItem Area="content" CssClass="px-md-4">
+                    <Template>
+                        <ErrorBoundary>
+                            <div class="col-12 col-md-6 col-xl-4 mx-auto">
+                                <DxFormLayout>
+                                    <DxFormLayoutGroup Caption="Display the Class Schedule" ColSpanXs="12">
+                                        <div class="col-11 mx-auto mt-2">
+                                            <p>Click below to view the Class Schedule. You do not need to be logged in to view or print this report.</p>
+                                            <DxButton Text="Click to display the schedule"
+                                                      IconCssClass="bi-printer menu-icon me-3 h2"
+                                                      CssClass="col-12"
+                                                      Click="OnReportClick"
+                                                      RenderStyle="ButtonRenderStyle.Primary"
+                                                      RenderStyleMode="ButtonRenderStyleMode.Outline">
+                                            </DxButton>
+                                        </div>
+                                    </DxFormLayoutGroup>
+                                    <DxFormLayoutGroup Caption="New Member? Start Here" ColSpanXs="12">
+                                        <div class="col-11 mx-auto mt-2">
+                                            <p>
+                                                Register an account to securely use our U3A membership system and protect your privacy. You will need an email address to do so.
+                                                If you have problems, contact the office for assistance.
+                                            </p>
+                                            <DxButton Text="Click to register"
+                                                      IconCssClass="bi bi-person-plus menu-icon me-3 h2"
+                                                      CssClass="col-12"
+                                                      Click="@(e => NavigationManager.NavigateTo("/Identity/Account/Register",true))"
+                                                      RenderStyle="ButtonRenderStyle.Primary"
+                                                      RenderStyleMode="ButtonRenderStyleMode.Outline">
+                                            </DxButton>
+                                        </div>
+                                    </DxFormLayoutGroup>
+                                    <DxFormLayoutGroup Caption="Returning Member? Login Here" ColSpanXs="12">
+                                        <div class="col-11 mx-auto mt-2">
+                                            <p>
+                                                Login to access your membership details, pay your membership fees,
+                                                enrol in courses and more!
+                                            </p>
+                                            <DxButton Text="Click to Login"
+                                                      IconCssClass="bi bi-person-check menu-icon me-3 h2"
+                                                      CssClass="col-12"
+                                                      Click="@(e => NavigationManager.NavigateTo("/Identity/Account/Login?ReturnUrl=%2F",true))"
+                                                      RenderStyle="ButtonRenderStyle.Primary"
+                                                      RenderStyleMode="ButtonRenderStyleMode.Outline">
+                                            </DxButton>
+                                        </div>
+                                    </DxFormLayoutGroup>
+                                    <DxButton Text="Return to website"
+                                              IconCssClass="bi bi-globe-asia-australia menu-icon me-3 h2"
+                                              CssClass="col-11 mx-auto mt-4"
+                                              Click="@OnClose"
+                                              RenderStyle="ButtonRenderStyle.Primary"
+                                              RenderStyleMode="ButtonRenderStyleMode.Outline">
+                                    </DxButton>
+                                </DxFormLayout>
+                            </div>
+                        </ErrorBoundary>
+                    </Template>
+                </DxGridLayoutItem>
+                <DxGridLayoutItem Area="Right-Blank" CssClass="d-print-none" />
+            </Items>
+        </DxGridLayout>
+    </div>
+
+@code {
+
+    bool IsXtraSmallLayout { get; set; }
+    bool IsSmallLayout { get; set; }
+    bool IsMediumLayout { get; set; }
+    bool IsLargeLayout { get; set; }
+    bool IsXtraLargeLayout { get; set; }
+    int[]? AppleOSversion;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender) {
+        await base.OnAfterRenderAsync(firstRender);
+        if (js != null) {
+            AppleOSversion = await js.InvokeAsync<int[]>("appleOSversion");
+        }
+    }
+
+    async Task OnReportClick() {
+        var url = "/public/ClassScheduleView";
+        NavigationManager.NavigateTo(url);
+    }
+
+    async Task OnClose() {
+        using (var dbc = U3Adbfactory.CreateDbContext()) {
+            var info = (TenantInfoEx)dbc.TenantInfo;
+            NavigationManager.NavigateTo(info.Website, true);
+        }
+    }
+
+}
+

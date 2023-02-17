@@ -1,0 +1,203 @@
+﻿@page "/AssignComplimentaryMembership"
+
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@inject NavigationManager NavigationManager
+@implements IDisposable
+
+
+@attribute [Authorize]
+
+@if (!IsReady) {
+    <p><em>Loading...</em></p>
+}
+else {
+
+    <div class="container-md py-md-5">
+        <div class="row">
+            <div class="col col-md-2" />
+            <div class="col col-md-8 border border-primary py-2">
+                <h3>Assign / Remove Complimentary Membership</h3>
+
+                <ul>
+                    <li>This procedure will assign the selected Financial Year to the complimentary groups selected below.</li>
+                    <li>The procedure should be executed at least once per year after the Committee, Course Leaders and volunteers have been finalised.</li>
+                    <li>A cash receipt with zero value will be created as an audit of financial status assigned by this procedure.</li>
+                    <li>It is safe to execute this procedure multiple times per year.</li>
+                </ul>
+
+
+                <MessageBox @ref="@messageBox" />
+
+                <DxFormLayout Enabled=@IsProcessing>
+                    <DxFormLayoutItem Caption="Year Financial To" ColSpanMd="6">
+                        <DxComboBox Data="@years"
+                                @bind-Value="@processYear" />
+                    </DxFormLayoutItem>
+                    <DxFormLayoutItem Caption="Assign to Life Members?" ColSpanMd="12" Enabled="false">
+                        <DxCheckBox @bind-Checked="@DoLifeMembers" />
+                    </DxFormLayoutItem>
+                    <DxFormLayoutItem Caption="Assign to Committee Members?" ColSpanMd="12">
+                        <DxCheckBox @bind-Checked="@DoCommitteeMembers" />
+                    </DxFormLayoutItem>
+                    <DxFormLayoutItem Caption="Assign to Course Leaders?" ColSpanMd="12">
+                        <DxCheckBox @bind-Checked="@DoCourseLeaders" />
+                    </DxFormLayoutItem>
+                    @for (var i = 0; i < Activities.Count(); i++) {
+                        var iCopy = i;
+                        <DxFormLayoutItem Caption=@($"Assign to {Activities[i]} volunteers?") ColSpanMd="12">
+                            <DxCheckBox @bind-Checked="@ActivityIndex[iCopy]" />
+                        </DxFormLayoutItem>
+                    }
+                    <DxFormLayoutGroup Caption="Assign Ad Hoc Complimentary Members">
+                        <DxFormLayoutItem Caption="Assign To Member(s)" ColSpanMd="12">
+                            <DxTagBox Data="@AvailablePersons"
+                                  ListRenderMode="ListRenderMode.Virtual"
+                                  TextFieldName="@nameof(Person.FullName)"
+                                  NullText=" "
+                                  @bind-Values="@AdHocPersonsToAssign">
+                                <DxListEditorColumn FieldName="@nameof(Person.FullName)"
+                                                Caption="Name"
+                                                Width="50%" />
+                                <DxListEditorColumn FieldName="@nameof(Person.Mobile)"
+                                                Caption="Mobile"
+                                                Width="25%" />
+                                <DxListEditorColumn FieldName="@nameof(Person.Email)"
+                                                Caption="Email"
+                                                Width="25%" />
+                            </DxTagBox>
+                        </DxFormLayoutItem>
+                        <DxFormLayoutItem Caption="Reason (Keep short)" ColSpanMd="12">
+                            <DxTextBox @bind-Text=@Reason />
+                        </DxFormLayoutItem>
+                    </DxFormLayoutGroup>
+                    <DxFormLayoutGroup Caption="Remove Complimentary Membership">
+                        <DxFormLayoutItem Caption="Remove Member(s)" ColSpanMd="12">
+                            <DxTagBox Data="@AvailablePersons"
+                                  ListRenderMode="ListRenderMode.Virtual"
+                                  TextFieldName="@nameof(Person.FullName)"
+                                  @bind-Values="@AdHocPersonsToRenove">
+                                <DxListEditorColumn FieldName="@nameof(Person.FullName)"
+                                                Caption="Name"
+                                                Width="50%" />
+                                <DxListEditorColumn FieldName="@nameof(Person.Mobile)"
+                                                Caption="Mobile"
+                                                Width="25%" />
+                                <DxListEditorColumn FieldName="@nameof(Person.Email)"
+                                                Caption="Email"
+                                                Width="25%" />
+                            </DxTagBox>
+                        </DxFormLayoutItem>
+                    </DxFormLayoutGroup>
+                    <DxFormLayoutItem ColSpanMd="12">
+                        <Template>
+                            <DxButton Visible=@(!IsProcessing) Text="Process" RenderStyle="@ButtonRenderStyle.Primary" Click="@Process" />
+                            <DxButton Visible=@(!IsProcessing) Text="Cancel" RenderStyle="@ButtonRenderStyle.Secondary" Click="@Close" />
+                            <DxButton Context="buttonContext" Visible=@(IsProcessing)
+                                  RenderStyle="ButtonRenderStyle.Success" CssClass="col col-12"
+                                  RenderStyleMode="ButtonRenderStyleMode.Contained">
+                                <span class="spinner-border spinner-border-sm" role="status" />&nbsp;Processing
+                            </DxButton>
+                        </Template>
+                    </DxFormLayoutItem>
+                </DxFormLayout>
+
+            </div>
+            <div class="col col-md-2" />
+        </div>
+
+    </div>
+
+}
+@code {
+    bool IsReady;
+    bool IsProcessing;
+    bool DoLifeMembers = true;
+    bool DoCommitteeMembers = false;
+    bool DoCourseLeaders = false;
+    bool DoVolunteers = false;
+    bool Checked;
+    string[] Activities;
+    bool[] ActivityIndex;
+    string Reason = string.Empty;
+    string? errorMessage;
+    SystemSettings? settings;
+    Term? processTerm;
+    int processYear;
+    List<int> years { get; set; }
+
+    MessageBox? messageBox;
+    U3ADbContext dbc { get; set; }
+
+    public List<Person> AvailablePersons { get; set; }
+    public IEnumerable<Person>? AdHocPersonsToAssign { get; set; }
+    public IEnumerable<Person>? AdHocPersonsToRenove { get; set; }
+
+    protected override async Task OnInitializedAsync() {
+        // wire up the data
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+        processTerm = await BusinessRule.CurrentTermAsync(dbc);
+        if (processTerm != null) {
+            processYear = await BusinessRule.MaxTermYearAsync(dbc);
+            years = new List<int>();
+            for (var i = processTerm.Year; i < processTerm.Year + 11; i++) { years.Add(i); }
+        }
+        settings = await dbc.SystemSettings.FirstOrDefaultAsync();
+        if (settings != null) {
+            Activities = settings.VolunteerActivities.Split(new string[] { "\n" },
+                                StringSplitOptions.None)
+                                .Where(x => !string.IsNullOrWhiteSpace(x)).ToArray();
+            Array.Resize(ref ActivityIndex, Activities.Length);
+        }
+        AvailablePersons = await BusinessRule.SelectablePersonsIncludeUnfinancialAsync(dbc);
+        IsReady = true;
+    }
+
+    void CheckedChanged(bool value, int i) {
+        ActivityIndex[i] = value;
+    }
+
+    async Task Process() {
+        if (AdHocPersonsToAssign != null && string.IsNullOrWhiteSpace(Reason)) {
+            await messageBox.ShowOkOnlyAsync("Enter Reason", "You must assign a resaon to ad hoc complimentary memberships.");
+            return;
+        }
+        errorMessage = null;
+        IsProcessing = true;
+        //StateHasChanged();
+        int count = 0;
+        int removedCount = 0;
+        if (DoLifeMembers) count += await BusinessRule.AssignLifeComplimentaryMembership(dbc, processYear);
+        if (DoCommitteeMembers) count += await BusinessRule.AssignCommitteeComplimentaryMembership(dbc, processYear);
+        if (DoCourseLeaders)
+        {
+            var t = await BusinessRule.AssignCourseLeaderComplimentaryMembership(dbc, processYear);
+            count += t.Item1;
+            removedCount += t.Item2;
+        }
+        for (var i = 0; i < ActivityIndex.Length; i++) {
+            if (ActivityIndex[i]) count += await BusinessRule.AssignVolunteerComplimentaryMembership(dbc, processYear, Activities[i]);
+        }
+        if (AdHocPersonsToAssign != null) {
+            count += await BusinessRule.AssignOtherComplimentaryMembership(dbc, processYear, AdHocPersonsToAssign, Reason);
+        }
+        if (AdHocPersonsToRenove != null) {
+            removedCount += await BusinessRule.RemoveOtherComplimentaryMembership(dbc, processYear, AdHocPersonsToRenove);
+        }
+        IsProcessing = false;
+        StateHasChanged();
+        await messageBox.ShowOkOnlyAsync("Process Complete", $"{count} Complimentary memberships have been created, and<br/>" +
+                                                                $"{removedCount} memberships have been removed.<br/>" +
+                                                                "Review the <em>Complimentary Membership Report</em> for details.");
+        NavigationManager.NavigateTo("/");
+    }
+
+    void Close() {
+        NavigationManager.NavigateTo("/");
+    }
+
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+
+}
+

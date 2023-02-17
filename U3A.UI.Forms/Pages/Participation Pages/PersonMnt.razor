@@ -1,0 +1,568 @@
+﻿@page "/PersonMnt"
+
+@using System.Diagnostics
+@using Microsoft.AspNetCore.Hosting
+
+@inject NavigationManager NavMan
+@inject IJSRuntime js
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@inject IWebHostEnvironment environment
+
+@implements IDisposable
+
+@attribute [Authorize]
+
+<form autocomplete="off">
+    @if (!IsReady) {
+        <p><em>Loading...</em></p>
+    }
+    else {
+
+        <div class="row  align-content-start">
+            <h3>@((IsEmbedded) ? "" : "Participants")</h3>
+        </div>
+        <div class="row" hidden="@IsEmbedded">
+            <div class="d-none col-lg-11 d-lg-inline">
+                Particpants are any persons participating in your U3A. This may include students, staff, volunteers, course leaders etc.
+            </div>
+            <DxButton Text="Communicate"
+                  Click="@OnCommunicate"
+                  RenderStyle="ButtonRenderStyle.Primary" CssClass="col col-lg-1 m-auto" />
+        </div>
+
+
+        <MessageBox @ref="@messageBox" />
+        <Progress @ref="@ProgressBar" />
+        <DateFilter @ref=DateFilter />
+
+        <SelectDocumentTemplatePopup @ref="@selectDocumentTemplatePopup" dbContext="@dbc"
+                                 DocumentTemplates="@DocumentTemplates" SendTo="@SendTo" />
+
+        <ErrorPopup @ref="@ErrorPopup" PopupHeader="@ErrorHeader" PopupMessage="@ErrorMessage" />
+
+        <div hidden="@IsEmbedded">
+            <DxTabs @ref="dxTabs" TabClick="@OnTabClick">
+                <DxTabPage Text="Participants" />
+                <DxTabPage Text="Leaders" />
+                <DxTabPage Text="Committee" />
+                <DxTabPage Text="Life Members" />
+                <DxTabPage Text="All Volunteers" />
+                <DxTabPage Text="@DateJoinedTabCaption" Click="@OnDateJoinedTabClick" />
+                <DxTabPage Text="@DateCeasedTabCaption" Click="@OnDateCeasedTabClick" />
+                <DxTabPage Text="@LastUpdateTabCaption" Click="@OnLastUpdateTabClick" />
+                <DxTabPage Text="Unfinancial" />
+                <DxTabPage Text="All Records" />
+            </DxTabs>
+
+            <GridToolbar @ref="Toolbar" LinkedGrid=@mainGrid />
+        </div>
+
+        <DxGrid Data="@Persons" @ref=@mainGrid CssClass="grid-height"
+            ColumnResizeMode="GridColumnResizeMode.ColumnsContainer"
+            @bind-SelectedDataItems="@SelectedDataItems"
+            AllowSelectRowByClick="false"
+            ShowFilterRow="false"
+            ShowAllRows="false"
+            KeyFieldName="ID"
+            ValidationEnabled="true"
+            PageSize="30"
+            PageSizeSelectorVisible="true"
+            PageSizeSelectorItems="@(new int[] {10,15, 20,30, 40,60,80, 100, 200,400 })"
+            PageSizeSelectorAllRowsItemVisible="true"
+            PagerSwitchToInputBoxButtonCount="10"
+            PagerVisibleNumericButtonCount="10"
+            PagerVisible="true"
+            PopupEditFormCssClass="popup-width"
+            EditMode="GridEditMode.PopupEditForm"
+            CustomizeEditModel="Grid_CustomizeEditModel"
+            EditModelSaving="Grid_EditModelSaving"
+            PopupEditFormHeaderText="Add/Edit Participant"
+            DataItemDeleting="Grid_DataItemDeleting">
+            <Columns>
+                <DxGridSelectionColumn Width="2rem" Visible="@(DateCeasedTabCaption == "Date Ceased")" />
+                <DxGridCommandColumnEx Width="8rem" />
+                <DxGridDataColumn Caption="ID" FieldName="PersonIdentity" Width="4rem" />
+                <DxGridDataColumn Caption="LegacyID" FieldName="ConversionID" Visible=false DisplayFormat="{0:F0}" />
+                <DxGridDataColumn Caption="Last Name" FieldName="LastName" Width="6rem" />
+                <DxGridDataColumn Caption="First Name" FieldName="FirstName" Width="8rem" />
+                <DxGridDataColumn Caption="Street" FieldName="Address" Visible=true Width="12rem" />
+                <DxGridDataColumn Caption="City" FieldName="City" Width="9rem" />
+                <DxGridDataColumn Caption="State" FieldName="State" Visible=false />
+                <DxGridDataColumn Caption="P'code" FieldName="Postcode" DisplayFormat="{0:D}" Width="3rem" />
+                <DxGridDataColumn Caption="Email" FieldName="Email" Visible=true Width="12rem" />
+                <DxGridDataColumn Caption="Domain" FieldName="Domain" Visible=false />
+                <DxGridDataColumn Caption="Phone" FieldName="HomePhone" Visible=false />
+                <DxGridDataColumn Caption="Mobile" FieldName="AdjustedMobile" Visible=true Width="5rem" />
+                <DxGridDataColumn Caption="Mail Via" FieldName="Communication" Visible=true Width="4rem" />
+                <DxGridDataColumn Caption="SMS Opt-Out?" FieldName="SMSOptOut" Visible=false Width="6rem">
+                    <CellDisplayTemplate>
+                        <DxCheckBox Enabled="false" Checked="(bool)context.Value" Alignment="CheckBoxContentAlignment.Center" />
+                    </CellDisplayTemplate>
+                    <FilterRowCellTemplate>
+                        <DxCheckBox Checked="(bool?)context.FilterRowValue"
+                                CheckedChanged="(bool? v) => context.FilterRowValue = v"
+                                AllowIndeterminateStateByClick="true"
+                                Alignment="CheckBoxContentAlignment.Center" />
+                    </FilterRowCellTemplate>
+                </DxGridDataColumn>
+                <DxGridDataColumn Caption="Leader?" FieldName="IsCourseLeader" Visible="@true" Width="4rem">
+                    <CellDisplayTemplate>
+                        <DxCheckBox Enabled="false" Checked="(bool)context.Value" Alignment="CheckBoxContentAlignment.Center" />
+                    </CellDisplayTemplate>
+                    <FilterRowCellTemplate>
+                        <DxCheckBox Checked="(bool?)context.FilterRowValue"
+                                CheckedChanged="(bool? v) => context.FilterRowValue = v"
+                                AllowIndeterminateStateByClick="true"
+                                Alignment="CheckBoxContentAlignment.Center" />
+                    </FilterRowCellTemplate>
+                </DxGridDataColumn>
+                <DxGridDataColumn Caption="Life?" FieldName="IsLifeMember" Visible="@true" Width="4rem">
+                    <CellDisplayTemplate>
+                        <DxCheckBox Enabled="false" Checked="(bool)context.Value" Alignment="CheckBoxContentAlignment.Center" />
+                    </CellDisplayTemplate>
+                    <FilterRowCellTemplate>
+                        <DxCheckBox Checked="(bool?)context.FilterRowValue"
+                                CheckedChanged="(bool? v) => context.FilterRowValue = v"
+                                AllowIndeterminateStateByClick="true"
+                                Alignment="CheckBoxContentAlignment.Center" />
+                    </FilterRowCellTemplate>
+                </DxGridDataColumn>
+                <DxGridDataColumn Caption="Gender" FieldName="Gender" Width="4rem" />
+                <DxGridDataColumn Caption="ICE Contact" FieldName="ICEContact" Visible=false />
+                <DxGridDataColumn Caption="ICE Phone" FieldName="ICEPhone" Visible=false />
+                <DxGridDataColumn Caption="Vax-Cert?" FieldName="VaxCertificateViewed" Visible="@settings.RequireVaxCertificate" Width="4rem">
+                    <CellDisplayTemplate>
+                        <DxCheckBox Enabled="false" Checked="(bool)context.Value" Alignment="CheckBoxContentAlignment.Center" />
+                    </CellDisplayTemplate>
+                    <FilterRowCellTemplate>
+                        <DxCheckBox Checked="(bool?)context.FilterRowValue"
+                                CheckedChanged="(bool? v) => context.FilterRowValue = v"
+                                AllowIndeterminateStateByClick="true"
+                                Alignment="CheckBoxContentAlignment.Center" />
+                    </FilterRowCellTemplate>
+                </DxGridDataColumn>
+                <DxGridDataColumn Caption="Occupation" FieldName="Occupation" Visible=false />
+                <DxGridDataColumn Caption="DOB" FieldName="BirthDate" Visible=false>
+                    <FilterRowCellTemplate>
+                        <DxDateEdit Date="(DateTime?)context.FilterRowValue"
+                                DateChanged="(DateTime? v) => context.FilterRowValue = v" />
+                    </FilterRowCellTemplate>
+                </DxGridDataColumn>
+                <DxGridDataColumn Caption="Joined" FieldName="DateJoined" Width="6rem">
+                    <FilterRowCellTemplate>
+                        <DxDateEdit Date="(DateTime?)context.FilterRowValue"
+                                DateChanged="(DateTime? v) => context.FilterRowValue = v" />
+                    </FilterRowCellTemplate>
+                </DxGridDataColumn>
+                <DxGridDataColumn Caption="Fin-To" FieldName="FinancialTo" DisplayFormat="{0:D}" />
+                <DxGridDataColumn Caption="Ceased" FieldName="DateCeased" Visible="@(DateCeasedTabCaption != "Date Ceased" || dxTabs.ActiveTabIndex == 9)">
+                    <FilterRowCellTemplate>
+                        <DxDateEdit Date="(DateTime?)context.FilterRowValue"
+                                DateChanged="(DateTime? v) => context.FilterRowValue = v" />
+                    </FilterRowCellTemplate>
+                </DxGridDataColumn>
+                <DxGridDataColumn Caption="Last Update" FieldName="UpdatedOn" Width="8rem"
+                              DisplayFormat="d/M/yy HH:mm" Visible="@(LastUpdateTabCaption != "Last Update")">
+                </DxGridDataColumn>
+            </Columns>
+            <GroupSummary>
+                <DxGridSummaryItem SummaryType="GridSummaryItemType.Count"
+                               FieldName="PersonID"
+                               FooterColumnName="LastName" />
+            </GroupSummary>
+            <TotalSummary>
+                <DxGridSummaryItem SummaryType="GridSummaryItemType.Count" FieldName="PersonID" FooterColumnName="LastName" />
+            </TotalSummary>
+
+            <EditFormTemplate Context="EditFormContext">
+                @{
+                    var editItem = (Person)EditFormContext.EditModel;
+                }
+                <DxFormLayout>
+                    <DxFormLayoutItem ColSpanMd="12">
+                        <ValidationSummary />
+                    </DxFormLayoutItem>
+                        <div class="m-2 text-danger" 
+                            style="width: 95%; font-size: 0.9em"><strong>NB:</strong> Changing the Email address requires Member Portal re-registration.</div>
+                    <DxFormLayoutGroup Caption="Personal" ColSpanMd="6">
+                        <DxFormLayoutItem Caption="First Name" ColSpanMd="12">
+                            <DxTextBox @bind-Text="@editItem.FirstName" />
+                        </DxFormLayoutItem>
+                        <DxFormLayoutItem Caption="Last Name" ColSpanMd="12">
+                            <DxTextBox @bind-Text="@editItem.LastName" />
+                        </DxFormLayoutItem>
+                        <DxFormLayoutItem Caption="Gender" ColSpanMd="12">
+                            <DxComboBox Data="@gender" @bind-Value="@editItem.Gender" />
+                        </DxFormLayoutItem>
+                        <DxFormLayoutItem Caption="Birth Date" ColSpanMd="12">
+                            <DxDateEdit @bind-Date="@editItem.BirthDate" />
+                        </DxFormLayoutItem>
+                        <DxFormLayoutItem Caption="Occupation/Skill" ColSpanMd="12">
+                            <DxMemo @bind-Text="@editItem.Occupation" Rows="3" />
+                        </DxFormLayoutItem>
+                    </DxFormLayoutGroup>
+                    <DxFormLayoutGroup Caption="Address / Contact Information" ColSpanMd="6">
+                        <DxFormLayoutItem Caption="Street" ColSpanMd="12">
+                            <DxTextBox @bind-Text="@editItem.Address" />
+                        </DxFormLayoutItem>
+                        <DxFormLayoutItem Caption="City" ColSpanMd="12">
+                            <DxTextBox @bind-Text="@editItem.City" />
+                        </DxFormLayoutItem>
+                        <DxFormLayoutItem Caption="State" ColSpanMd="6">
+                            <DxComboBox Data="@states" @bind-Value="@editItem.State" />
+                        </DxFormLayoutItem>
+                        <DxFormLayoutItem Caption="Postcode" ColSpanMd="6">
+                            <DxSpinEdit @bind-Value="@editItem.Postcode" />
+                        </DxFormLayoutItem>
+                        <DxFormLayoutItem Caption="Email" ColSpanMd="12">
+                            <DxTextBox @bind-Text="@editItem.Email" />
+                        </DxFormLayoutItem>
+                        <DxFormLayoutItem Caption="Home Phone" ColSpanMd="12">
+                            <DxTextBox @bind-Text="@editItem.HomePhone" />
+                        </DxFormLayoutItem>
+                        <DxFormLayoutItem Caption="Mobile Phone" ColSpanMd="12">
+                            <DxTextBox @bind-Text="@editItem.Mobile" />
+                        </DxFormLayoutItem>
+                        <DxFormLayoutItem Caption="Silent Number" ColSpanMd="12">
+                            <DxTextBox @bind-Text="@editItem.SilentNumber" />
+                        </DxFormLayoutItem>
+                        <DxFormLayoutItem Caption="Communication" ColSpanMd="6">
+                            <DxComboBox Data="@Communication" @bind-Value="@editItem.Communication" />
+                        </DxFormLayoutItem>
+                        <DxFormLayoutItem Caption="SMS Opt-Out?" ColSpanMd="6">
+                            <DxCheckBox @bind-Checked="@editItem.SMSOptOut"
+                                    Alignment="CheckBoxContentAlignment.Right" />
+                        </DxFormLayoutItem>
+                    </DxFormLayoutGroup>
+                    <DxFormLayoutGroup Caption="In Case of Emergency" ColSpanMd="6">
+                        <DxFormLayoutItem Caption="Contact" ColSpanMd="12">
+                            <DxTextBox @bind-Text="@editItem.ICEContact" />
+                        </DxFormLayoutItem>
+                        <DxFormLayoutItem Caption="Phone" ColSpanMd="12">
+                            <DxTextBox @bind-Text="@editItem.ICEPhone" />
+                        </DxFormLayoutItem>
+                    </DxFormLayoutGroup>
+
+                    <DxFormLayoutGroup Caption="Membership" ColSpanMd="6">
+                        <Items>
+                            <DxFormLayoutItem Caption="Financial To" ColSpanMd="6">
+                                <DxComboBox Data="@AllowedFinancialYears"
+                                        @bind-Value="@editItem.FinancialTo" ReadOnly="true" />
+                            </DxFormLayoutItem>
+                            <DxFormLayoutItem Caption="Date Joined" ColSpanMd="6">
+                                <DxDateEdit @bind-Date="@editItem.DateJoined" />
+                            </DxFormLayoutItem>
+                            <DxFormLayoutItem Caption="Date Ceased" ColSpanMd="6">
+                                <DxDateEdit @bind-Date="@editItem.DateCeased" />
+                            </DxFormLayoutItem>
+                            <DxFormLayoutItem Caption="Life Member?" ColSpanMd="6">
+                                <DxCheckBox @bind-Checked="@editItem.IsLifeMember"
+                                        Alignment="CheckBoxContentAlignment.Right" />
+                            </DxFormLayoutItem>
+                            <DxFormLayoutItem Caption="Vax Certificate?" ColSpanMd="6"
+                                          Visible="@settings.RequireVaxCertificate">
+                                <DxCheckBox @bind-Checked="@editItem.VaxCertificateViewed"
+                                        Alignment="CheckBoxContentAlignment.Right" />
+                            </DxFormLayoutItem>
+                        </Items>
+                    </DxFormLayoutGroup>
+                </DxFormLayout>
+            </EditFormTemplate>
+        </DxGrid>
+
+    }
+</form>
+
+<style>
+    .grid-height {
+        height: @GridHeight;
+    }
+
+    .popup-width {
+        min-width: 55rem;
+    }
+
+</style>
+
+
+@code {
+    [Parameter]
+    public bool IsEmbedded { get; set; }
+
+    [Parameter]
+    public string GridHeight { get; set; } = "75vh";
+
+    bool IsReady;
+    IReadOnlyList<object> SelectedDataItems { get; set; }
+    DateTime selectedDate;
+    SystemSettings settings;
+    Communication Communication;
+    List<int>? AllowedFinancialYears;
+    Term? currentTerm;
+    Term? firstTermNextYear;
+
+    private List<Person> Persons { get; set; }
+    private AUState states;
+    private Gender gender;
+    private List<Person> SendTo { get; set; }
+    private List<DocumentTemplate> DocumentTemplates;
+    private SelectDocumentTemplatePopup? selectDocumentTemplatePopup;
+    private DateFilter DateFilter;
+    private string DateJoinedTabCaption = "Date Joined";
+    private string DateCeasedTabCaption = "Date Ceased";
+    private string LastUpdateTabCaption = "Last Update";
+    DxTabs? dxTabs;
+
+    internal IGrid? mainGrid { get; set; }
+    internal ErrorPopup? ErrorPopup { get; set; }
+    internal GridToolbar? Toolbar;
+    internal Progress? ProgressBar;
+    internal string ErrorHeader;
+    internal string ErrorMessage;
+    U3ADbContext? dbc { get; set; }
+    DocumentServer server;
+    int emailsSent;
+
+    MessageBox? messageBox { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+
+    protected override async Task OnInitializedAsync() {
+        // wire up the data
+        states = new AUState();
+        gender = new Gender();
+        Communication = new Communication();
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+        await GetData();
+        DocumentTemplates = await BusinessRule.SelectableDocumentTemplatesAsync(dbc);
+        settings = await dbc.SystemSettings.FirstOrDefaultAsync();
+        server = new DocumentServer(dbc);
+        server.DocumentSentEvent += Server_DocumentSent;
+        AllowedFinancialYears = new List<int>();
+        currentTerm = await BusinessRule.CurrentTermAsync(dbc);
+        if (currentTerm != null) {
+            AllowedFinancialYears.Add(currentTerm.Year);
+            firstTermNextYear = await BusinessRule.FirstTermNextYearAsync(dbc, currentTerm.Year);
+            if (firstTermNextYear != null
+                && DateTime.Today >= firstTermNextYear.EnrolmentStartDate) AllowedFinancialYears.Insert(0, firstTermNextYear.Year);
+            AllowedFinancialYears.Add(currentTerm.Year - 1);
+        }
+        await SetupTab(0);
+        IsReady = true;
+    }
+
+    async Task GetData() {
+        Persons = await BusinessRule.EditablePersonAsync(dbc);
+    }
+
+    protected override async void OnAfterRender(bool firstRender) {
+        // wire up the toolbar
+        base.OnAfterRender(firstRender);
+        if (Toolbar != null && mainGrid != null) { Toolbar.LinkedGrid = mainGrid; }
+        if (!firstRender) {
+            if (currentTerm == null) {
+                await messageBox.ShowOkOnlyAsync("Current Term is undefined", "Use <strong>Add/Edit Enrolment Terms</strong> to set the current term.");
+                NavMan.NavigateTo("/");
+            }
+        }
+    }
+
+    void Grid_CustomizeEditModel(GridCustomizeEditModelEventArgs e) {
+        if (e.IsNew) {
+            var editModel = (Person)e.EditModel;
+            editModel.DateJoined = DateTime.Today;
+            editModel.State = ((TenantInfoEx)dbc.TenantInfo).State;
+        }
+    }
+    async Task Grid_EditModelSaving(GridEditModelSavingEventArgs e) {
+        var editModel = (Person)e.EditModel;
+        if (!await IsDataOK(editModel)) { e.Cancel = true; return; }
+        // Re-query a data item from the store.
+        var dataItem = e.IsNew ? new Person() : dbc.Person.Find(editModel.ID);
+        // Assign changes from the edit model to the data item.
+        if (dataItem != null) {
+            editModel.CopyTo(dataItem);
+            // Post changes to the database.
+            if (e.IsNew) await dbc.AddAsync(dataItem);
+            if (await SaveChangesAsync()) {
+                // update the Grid.
+                if (e.IsNew) {
+                    Persons.Insert(0, dataItem);
+                }
+                else {
+                    int idx = Persons.FindIndex(x => x.ID == dataItem.ID);
+                    Persons[idx] = dataItem;
+                }
+            }
+        }
+    }
+
+    async Task<bool> IsDataOK(Person person) {
+        bool result = true;
+        if (Persons != null) {
+            var dupHTML = await BusinessRule.GetDuplicateMarkup(dbc, person);
+            if (!string.IsNullOrWhiteSpace(dupHTML)) {
+                var args = new MessageBoxArgs();
+                args.Caption = "Duplicate Participant?";
+                args.Message = dupHTML;
+                args.OKButtonText = "Continue";
+                result = await messageBox.ShowAsync(args);
+            }
+        }
+        return result;
+    }
+
+    async Task Grid_DataItemDeleting(GridDataItemDeletingEventArgs e) {
+        Person person = (Person)e.DataItem;
+        await BusinessRule.DeleteLeadershipRole(dbc, person.ID);
+        dbc.Remove(person);
+        await SaveChangesAsync();
+        await GetData();
+    }
+
+    async Task<bool> SaveChangesAsync() {
+        bool result = false;
+        try {
+            // Post changes to the database.
+            await dbc.SaveChangesAsync();
+            result = true;
+        }
+        catch (Exception ex) {
+            ErrorHeader = "Save to database error";
+            ErrorMessage = Helpers.GetErrorMessage(ex);
+            await ErrorPopup.ShowPopupAsync();
+            dbc?.ChangeTracker?.Clear();
+        }
+        return result;
+    }
+
+    async void OnDateJoinedTabClick() {
+        if (await DateFilter.ShowAsync()) {
+            await GetData();
+            switch (DateFilter.FilterType) {
+                case DateFilter.FilterTypes.OnOrAfter:
+                    Persons = Persons.Where(x => x.DateJoined > DateFilter.FromDate.AddDays(-1)).ToList();
+                    DateJoinedTabCaption = $"Joined After: {DateFilter.FromDate.ToShortDateString()}";
+                    break;
+                case DateFilter.FilterTypes.OnOrBefore:
+                    Persons = Persons.Where(x => x.DateJoined < DateFilter.FromDate.AddDays(1)).ToList();
+                    DateJoinedTabCaption = $"Joined Before: {DateFilter.FromDate.ToShortDateString()}";
+                    break;
+                case DateFilter.FilterTypes.DateRange:
+                    Persons = Persons.Where(x => x.DateJoined > DateFilter.FromDate.AddDays(-1) &&
+                                                   x.DateJoined < DateFilter.ToDate.AddDays(1)).ToList();
+                    DateJoinedTabCaption = $"Joined {DateFilter.FromDate.ToShortDateString()} - {DateFilter.ToDate.ToShortDateString()}";
+                    break;
+            }
+            StateHasChanged();
+        }
+    }
+
+    async void OnDateCeasedTabClick() {
+        if (await DateFilter.ShowAsync()) {
+            await GetData();
+            switch (DateFilter.FilterType) {
+                case DateFilter.FilterTypes.OnOrAfter:
+                    Persons = Persons.Where(x => x.DateCeased > DateFilter.FromDate.AddDays(-1)).ToList();
+                    DateCeasedTabCaption = $"Ceased After: {DateFilter.FromDate.ToShortDateString()}";
+                    break;
+                case DateFilter.FilterTypes.OnOrBefore:
+                    Persons = Persons.Where(x => x.DateCeased < DateFilter.FromDate.AddDays(1)).ToList();
+                    DateCeasedTabCaption = $"Ceased Before: {DateFilter.FromDate.ToShortDateString()}";
+                    break;
+                case DateFilter.FilterTypes.DateRange:
+                    Persons = Persons.Where(x => x.DateCeased > DateFilter.FromDate.AddDays(-1) &&
+                                                   x.DateCeased < DateFilter.ToDate.AddDays(1)).ToList();
+                    DateCeasedTabCaption = $"Ceased {DateFilter.FromDate.ToShortDateString()} - {DateFilter.ToDate.ToShortDateString()}";
+                    break;
+            }
+            StateHasChanged();
+        }
+    }
+
+    async void OnLastUpdateTabClick() {
+        if (await DateFilter.ShowAsync()) {
+            await GetData();
+            switch (DateFilter.FilterType) {
+                case DateFilter.FilterTypes.OnOrAfter:
+                    Persons = Persons.Where(x => x.UpdatedOn > DateFilter.FromDate.AddDays(-1)).ToList();
+                    LastUpdateTabCaption = $"Updated After: {DateFilter.FromDate.ToShortDateString()}";
+                    break;
+                case DateFilter.FilterTypes.OnOrBefore:
+                    Persons = Persons.Where(x => x.UpdatedOn < DateFilter.FromDate.AddDays(1)).ToList();
+                    LastUpdateTabCaption = $"Updated Before: {DateFilter.FromDate.ToShortDateString()}";
+                    break;
+                case DateFilter.FilterTypes.DateRange:
+                    Persons = Persons.Where(x => x.UpdatedOn > DateFilter.FromDate.AddDays(-1) &&
+                                                   x.UpdatedOn < DateFilter.ToDate.AddDays(1)).ToList();
+                    LastUpdateTabCaption = $"Updated {DateFilter.FromDate.ToShortDateString()} - {DateFilter.ToDate.ToShortDateString()}";
+                    break;
+            }
+            StateHasChanged();
+        }
+    }
+
+    async void OnTabClick(TabClickEventArgs e) {
+        await SetupTab(e.TabIndex);
+    }
+
+    async Task SetupTab(int TabIndex) {
+        await GetData();
+        DateJoinedTabCaption = "Date Joined";
+        DateCeasedTabCaption = "Date Ceased";
+        LastUpdateTabCaption = "Last Update";
+        switch (TabIndex) {
+            case 0:             // All financial participants not Ceased
+                Persons = Persons.Where(x => x.DateCeased == null && x.FinancialTo >= currentTerm?.Year).ToList();
+                break;
+            case 1:             // Leaders
+                Persons = Persons.Where(x => x.IsCourseLeader && x.DateCeased == null && x.FinancialTo >= currentTerm.Year).ToList();
+                break;
+            case 2:             // Committe
+                Persons = Persons.Where(x => x.IsCommitteeMember && x.DateCeased == null).ToList();
+                break;
+            case 3:             // Life
+                Persons = Persons.Where(x => x.IsLifeMember && x.DateCeased == null).ToList();
+                break;
+            case 4:             // Volunteer
+                Persons = Persons.Where(x => x.IsVolunteer && x.DateCeased == null).ToList();
+                break;
+            case 8:             // Unfinancial
+                Persons = Persons.Where(x => x.FinancialTo < currentTerm?.Year && x.DateCeased == null).ToList();
+                break;
+            case 9:             // All Records
+                Persons = Persons.ToList();
+                break;
+        }
+        StateHasChanged();
+    }
+
+    async Task OnCommunicate() {
+        if (SelectedDataItems == null || SelectedDataItems.Count <= 0) {
+            await messageBox.ShowOkOnlyAsync("Make a Selection", "Select one or more participants to communicate with.");
+            return;
+        }
+        SendTo = SelectedDataItems.Cast<Person>().OrderBy(x => x.FullNameAlpha).ToList();
+        if (await selectDocumentTemplatePopup.ShowAsync()) {
+            emailsSent = 0;
+            await ProgressBar.ShowAsync("Sending ... Please Wait", SelectedDataItems.Count);
+            List<ExportData> exportData = await BusinessRule.GetExportDataAsync(dbc, SendTo);
+            bool overridePreference = selectDocumentTemplatePopup.OverrideCommunicationPreference;
+            await server.MailMerge(dbc, selectDocumentTemplatePopup.SelectedDocumentTemplate, exportData, overridePreference);
+            await ProgressBar.Close();
+            await messageBox.ShowOkOnlyAsync("Communication Complete", server.GetHTMLResult());
+        }
+    }
+
+    async void Server_DocumentSent(object sender, DocumentSentEventArgs e) {
+        emailsSent += e.DocumentsSent;
+        await ProgressBar.SetValueAsync(emailsSent);
+    }
+
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+
+}

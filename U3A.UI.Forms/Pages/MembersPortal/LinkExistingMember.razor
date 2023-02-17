@@ -1,0 +1,130 @@
+﻿@inject IJSRuntime js
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@inject NavigationManager NavigationManager
+
+@implements IDisposable
+
+
+@attribute [Authorize]
+
+@if (!IsReady) {
+    <p><em>Loading...</em></p>
+}
+else {
+    <ErrorPopup @ref="@ErrorPopup" PopupHeader="@ErrorHeader" PopupMessage="@ErrorMessage" />
+    <MessageBox @ref="@messageBox" />
+
+    <DxFormLayout CssClass="col col-8 m-auto">
+        <div class="h5 text-center col-12">Link an existing member</div>
+        <div class="alert alert-info col-12 text-center">
+            <p>
+                You are about to link your login to an existing member and share the same email address.
+                You will assume responsibility for membership fees and course enrolment for that member.
+            </p>
+            <p>
+                To perform this action, you must enter the member's <strong>Member Identity</strong> code. This is a six character code
+                beginning with the member's initials. You will find it on all mail items sent to the member.
+                Alternatively, the member to be linked may request it from our office.
+            </p>
+        </div>
+        <DxFormLayout CssClass="col-12">
+            <DxFormLayoutGroup Caption="Member Identity to link">
+                <DxFormLayoutItem Caption="Enter the member's Member Identity:" CssClass="find-textbox">
+                    <DxTextBox @bind-Text="@personIdentity" />
+                </DxFormLayoutItem>
+                <DxButton Text="Find" CssClass="find-button m-auto mt-2"
+                      RenderStyle="@ButtonRenderStyle.Primary"
+                      Click="@OnFind"
+                      Visible="@(!canSave)" />
+                <DxFormLayoutItem Caption="You are about to link to:" ColSpanXs="12" Visible="@canSave">
+                    <DxTextBox @bind-Text="@fullName" ReadOnly=true />
+                </DxFormLayoutItem>
+            </DxFormLayoutGroup>
+            <DxButton CssClass="col-12 col-md-3 me-2 mt-2" Enabled="@canSave"
+                  Text="Save" RenderStyle="@ButtonRenderStyle.Primary" Click="@OnSave" />
+            <DxButton CssClass="col-12 col-md-3 mt-2"
+                  Text="Cancel" RenderStyle="@ButtonRenderStyle.Secondary" Click="@OnCancel" />
+        </DxFormLayout>
+        <div class="container">
+        </div>
+    </DxFormLayout>
+}
+<style>
+    .find-textbox {
+        width: 85%;
+    }
+
+    .find-button {
+        width: 12%;
+    }
+</style>
+@code {
+    [CascadingParameter]
+    LoginState loginState { get; set; }
+
+    [Parameter]
+    public EventCallback<PortalMenuResult> OnSelectedOptionCompleted { get; set; }
+
+    bool canSave = false;
+    string personIdentity = string.Empty;
+    string fullName;
+
+    ErrorPopup? ErrorPopup { get; set; }
+    string? ErrorHeader;
+    string? ErrorMessage;
+    MessageBox? messageBox;
+
+    Person person;
+    bool IsReady = false;
+
+
+    U3ADbContext? dbc { get; set; }
+
+
+    protected override async Task OnInitializedAsync() {
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+        IsReady = true;
+        await base.OnInitializedAsync();
+    }
+
+    async Task OnFind() {
+        personIdentity = personIdentity.ToLower().Trim();
+        person = dbc.Person.AsEnumerable().FirstOrDefault(x => x.PersonIdentity == personIdentity);
+        if (person == null) {
+            canSave = false;
+            await messageBox.ShowOkOnlyAsync("Member not found", "A member record with the Member Identity entered was not found.");
+        }
+        else {
+            fullName = person.FullName;
+            canSave = true;
+        }
+    }
+
+    async Task OnSave() {
+        person = await dbc.Person.FindAsync(person.ID);
+        person.Email = loginState.LoginEmail;
+        dbc.Update(person);
+        await dbc.SaveChangesAsync();
+        await messageBox.ShowOkOnlyAsync("Link Succeeded", "You must now re-login for the change to take affect.<br>" +
+                                                            "Click Ok to logout");
+        loginState.SelectedPerson = null;
+        await OnCancel();
+    }
+    async Task ReturnToMenu(PortalMenuResult result) {
+        await OnSelectedOptionCompleted.InvokeAsync(result);
+    }
+
+    async Task OnCancel() {
+        if (loginState.SelectedPerson != null) {
+            await ReturnToMenu(PortalMenuResult.MenuOptionCancelled);
+        }
+        else {
+            NavigationManager.NavigateTo("Identity/Account/Logout", true);
+        }
+    }
+
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+
+}

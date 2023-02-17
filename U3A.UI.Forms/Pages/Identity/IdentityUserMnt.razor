@@ -1,0 +1,369 @@
+﻿@page "/IdentityUserMnt"
+
+@inject IJSRuntime js
+@inject UserManager<IdentityUser> UserManager
+@inject SignInManager<IdentityUser> SignInManager
+@using DevExpress.Data.Filtering
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.JSInterop
+@using Microsoft.AspNetCore.Identity
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@implements IDisposable
+
+
+@attribute [Authorize(Roles = "Security Administrator")]
+
+@if (!IsReady) {
+    <p><em>Loading...</em></p>
+}
+else {
+
+    <CreateDomainLogin @ref="createDomainLogin" 
+        Roles="@Roles"
+        Settings ="@settings"/>
+
+    <div class="container h-100">
+        <div class="row  align-content-start">
+            <h3>Login Security &amp; Role Assignment</h3>
+        </div>
+        <div class="row">
+            <div class="col-3 align-content-start">
+                Review login security and assign roles to logins.
+            </div>
+            <DxButton Text="Create Domain Login"
+                  Click="@OnCreateDomainLogin"
+                  RenderStyle="ButtonRenderStyle.Primary" CssClass="col col-lg-2 m-auto" />
+            <DxButton Text="Populate Logins"
+                  Click="@OnPopulateLogins"
+                  RenderStyle="ButtonRenderStyle.Primary" CssClass="col col-lg-2 m-auto" />
+            <DxButton Text="Set Email Confirmed"
+                  Click="@OnSetEmailConfirmed" Enabled="@AreItemsSelected()"
+                  RenderStyle="ButtonRenderStyle.Primary" CssClass="col col-lg-2 m-auto" />
+            <DxButton Text="Reset Password"
+                  Click="@OnResetPassword" Enabled="@AreItemsSelected()"
+                  RenderStyle="ButtonRenderStyle.Primary" CssClass="col col-lg-2 m-auto" />
+        </div>
+        <br />
+
+        <MessageBox @ref="@messageBox" />
+        <Progress @ref="@ProgressBar" />
+
+        <DxTabs @ref="dxTabs" TabClick="@OnTabClick">
+            <DxTabPage Text="All Logins" />
+            <DxTabPage Text="With Roles" />
+            <DxTabPage Text="Without Roles" />
+            <DxTabPage Text="Email Not Confirmed" />
+        </DxTabs>
+
+        <GridToolbar @ref="Toolbar" LinkedGrid=@mainGrid />
+        <DxGrid id="mainGrid" Data="@Users" @ref="mainGrid" CssClass="h-75"
+            UnboundColumnData="Grid_CustomUnboundColumnData"
+            @bind-SelectedDataItems="@SelectedDataItems"
+            ShowFilterRow="false"
+            ShowAllRows="false"
+            KeyFieldName="Id"
+            PageSize="30"
+            PageSizeSelectorVisible="true"
+            PageSizeSelectorItems="@(new int[] {10,15, 20,30, 40,60,80, 100, 200,400 })"
+            PageSizeSelectorAllRowsItemVisible="true"
+            PagerSwitchToInputBoxButtonCount="10"
+            PagerVisibleNumericButtonCount="10"
+            PagerVisible="true"
+            PopupEditFormHeaderText="Assign User Roles"
+            EditMode="GridEditMode.PopupEditForm"
+            EditModelSaving="Grid_EditModelSaving"
+            DataItemDeleting="Grid_DataItemDeleting"
+            CustomizeEditModel="Grid_CustomizeEditModel"
+            ValidationEnabled="true">
+            <Columns>
+                <DxGridSelectionColumn Width="2rem" />
+                <DxGridCommandColumnEx Width="8rem" DeleteButtonVisible=true EditButtonVisible=true NewButtonVisible="false" />
+                <DxGridDataColumn Width="15rem" Caption="Email" FieldName="Email" />
+                <DxGridDataColumn Width="15rem" FieldName="Participant" UnboundType="GridUnboundColumnType.String" />
+                <DxGridDataColumn Width="7em" Caption="Email Confirmed?" FieldName="EmailConfirmed">
+                    <CellDisplayTemplate>
+                        <DxCheckBox Enabled="false" Checked="(bool)context.Value" />
+                    </CellDisplayTemplate>
+                    <FilterRowCellTemplate>
+                        <DxCheckBox Checked="(bool?)context.FilterRowValue"
+                                CheckedChanged="(bool? v) => context.FilterRowValue = v"
+                                AllowIndeterminateStateByClick="true"
+                                Alignment="CheckBoxContentAlignment.Center" />
+                    </FilterRowCellTemplate>
+                </DxGridDataColumn>
+                <DxGridDataColumn Width="7rem"
+                              Caption="Lockout Enabled?" FieldName="LockoutEnabled">
+                    <CellDisplayTemplate>
+                        <DxCheckBox Enabled="false" Checked="(bool)context.Value" />
+                    </CellDisplayTemplate>
+                    <FilterRowCellTemplate>
+                        <DxCheckBox Checked="(bool?)context.FilterRowValue"
+                                CheckedChanged="(bool? v) => context.FilterRowValue = v"
+                                AllowIndeterminateStateByClick="true"
+                                Alignment="CheckBoxContentAlignment.Center" />
+                    </FilterRowCellTemplate>
+                </DxGridDataColumn>
+                <DxGridDataColumn Width="6rem" Caption="Lockout End" DisplayFormat="d" FieldName="LockoutEnd" />
+                <DxGridDataColumn Width="4rem" Caption="Login Failures" DisplayFormat="n0" FieldName="AccessFailedCount" />
+                <DxGridDataColumn FieldName="Roles" UnboundType="GridUnboundColumnType.String" />
+            </Columns>
+            <EditFormTemplate Context="EditFormContext">
+                @{
+                    var editItem = (IdentityUser)EditFormContext.EditModel;
+                }
+                <DxFormLayout>
+                    <DxFormLayoutItem>
+                        <ValidationSummary />
+                    </DxFormLayoutItem>
+                    <DxFormLayoutItem Caption="User Roles" ColSpanMd="12">
+                        <DxTagBox Data="@Roles" ClearButtonDisplayMode="DataEditorClearButtonDisplayMode.Auto"
+                              @bind-Values="@SelectedRoles">
+                        </DxTagBox>
+                    </DxFormLayoutItem>
+
+                </DxFormLayout>
+            </EditFormTemplate>
+
+            <TotalSummary>
+                <DxGridSummaryItem SummaryType="GridSummaryItemType.Count" Name="Total" FieldName="Email" />
+            </TotalSummary>
+
+        </DxGrid>
+        @quickMessage
+
+    </div>   @*Container*@
+}
+
+@code {
+    bool IsReady;
+    bool PopupVisible;
+    SystemSettings settings;
+    IReadOnlyList<object> SelectedDataItems { get; set; }
+    IEnumerable<IdentityUser> Users { get; set; }
+    IEnumerable<IdentityRole> Roles { get; set; }
+    IEnumerable<IdentityRole>? SelectedRoles { get; set; } = new List<IdentityRole>();
+    IGrid? mainGrid;
+    DxTabs? dxTabs;
+    DxGridCommandColumnEx? GridCommandColumn;
+    MarkupString quickMessage;
+    U3ADbContext dbc { get; set; }
+    Progress? ProgressBar;
+    CreateDomainLogin? createDomainLogin;
+
+    MessageBox? messageBox { get; set; }
+
+    internal GridToolbar? Toolbar;
+
+    bool AreItemsSelected() {
+        return (SelectedDataItems != null && SelectedDataItems.Count > 0) ? true : false;
+    }
+
+    protected override async Task OnInitializedAsync() {
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+        await RefreshData();
+        settings = await dbc.SystemSettings.FirstOrDefaultAsync();
+        Roles = await dbc.Roles.ToListAsync();
+        IsReady = true;
+    }
+
+    async Task RefreshData() {
+        Users = await UserManager.Users.OrderBy(x => x.Email).ToListAsync();
+        if (mainGrid != null) {
+            mainGrid.ClearSelection();
+        }
+    }
+
+    protected override async void OnAfterRender(bool firstRender) {
+        // wire up the toolbar
+        base.OnAfterRender(firstRender);
+        if (Toolbar != null && mainGrid != null) { Toolbar.LinkedGrid = mainGrid; }
+    }
+
+    void Grid_CustomUnboundColumnData(GridUnboundColumnDataEventArgs e) {
+        string result = string.Empty;
+        if (e.FieldName == "Roles") {
+            var userRoles = (from u in dbc.Users
+                             where u.Email == (e.DataItem as IdentityUser).Email
+                             join ur in dbc.UserRoles
+                             on u.Id equals ur.UserId
+                             join r in dbc.Roles
+                             on ur.RoleId equals r.Id
+                             select new {
+                                 Role = r.Name
+                             }).ToList().OrderBy(x => x.Role);
+
+            result = string.Empty;
+            foreach (var u in userRoles) {
+                result += $"{u.Role}, ";
+            }
+            e.Value = (result != string.Empty) ? result.Substring(0, result.Length - 2) : string.Empty;
+        }
+        if (e.FieldName == "Participant") {
+            result = string.Empty;
+            foreach (var p in dbc.Person.Where(x => x.Email == (e.DataItem as IdentityUser).Email)) {
+                result += $"{p.FullName}, ";
+            }
+            e.Value = (result != string.Empty) ? result.Substring(0, result.Length - 2) : string.Empty;
+        }
+    }
+
+    async void OnTabClick(TabClickEventArgs e) {
+        await ProgressBar.ShowSpinnerAsync("Filtering ... Please wait");
+        await SetupTab(e.TabIndex);
+        await ProgressBar.Close();
+    }
+
+    async Task SetupTab(int TabIndex) {
+        await InvokeAsync(mainGrid.BeginUpdate);
+        await InvokeAsync(StateHasChanged);
+        await Task.Run(() => {
+            switch (TabIndex) {
+                case 0:             // All records
+                    mainGrid.ClearFilter();
+                    break;
+                case 1:             // With Roles
+                    var filter = new BinaryOperator("Roles", string.Empty, BinaryOperatorType.NotEqual);
+                    mainGrid.SetFilterCriteria(filter);
+                    break;
+                case 2:             // With Roles
+                    filter = new BinaryOperator("Roles", string.Empty, BinaryOperatorType.Equal);
+                    mainGrid.SetFilterCriteria(filter);
+                    break;
+                case 3:             // Email Not Confirmed
+                    filter = new BinaryOperator("EmailConfirmed", false, BinaryOperatorType.Equal);
+                    mainGrid.SetFilterCriteria(filter);
+                    break;
+            }
+        });
+        await InvokeAsync(mainGrid.EndUpdate);
+        await InvokeAsync(StateHasChanged);
+    }
+
+
+    async Task Grid_EditModelSaving(GridEditModelSavingEventArgs e) {
+        var user = (IdentityUser)e.DataItem;  // must be dataItem!!
+        foreach (var role in Roles) {
+            if (await UserManager.IsInRoleAsync(user, role.Name)) {
+                await UserManager.RemoveFromRoleAsync(user, role.Name);
+            }
+        }
+        foreach (var role in SelectedRoles) {
+            if (!await UserManager.IsInRoleAsync(user, role.Name)) {
+                await UserManager.AddToRoleAsync(user, role.Name);
+            }
+        }
+        Users = await UserManager.Users.OrderBy(x => x.Email).ToListAsync();
+        e.Reload = true;
+    }
+
+    async void Grid_CustomizeEditModel(GridCustomizeEditModelEventArgs e) {
+        SelectedRoles = new List<IdentityRole>();
+        var l = new List<IdentityRole>();
+        if (!e.IsNew) {
+            var user = (IdentityUser)e.DataItem;
+            foreach (var role in Roles) {
+                if (await UserManager.IsInRoleAsync(user, role.Name)) {
+                    l.Add(role);
+                }
+            }
+            SelectedRoles = l.ToList();
+            StateHasChanged();
+        }
+    }
+
+    async Task Grid_DataItemDeleting(GridDataItemDeletingEventArgs e) {
+        if (e.DataItem != null) {
+            await UserManager.DeleteAsync(e.DataItem as IdentityUser);
+            await RefreshData();
+            e.Reload = true;
+        }
+    }
+
+    async Task OnResetPassword() {
+        var msg =
+            "<p>You are about to reset the selected login passwords to the default <strong>Member ID</strong> on their member record. " +
+            "Password maintenance is designed to be a self-service procedure but this procedure may be helpful should the member be experiencing problems. " +
+            "<p>Where an email address is shared by a male and female, the male's Member ID will be used as the password. " +
+            "Where an email address is shared by members with the same gender, the first Member ID in alphabetical order will be used.</p>" +
+            "<p>Do you wish to continue?";
+        if (await messageBox.ShowAsync("Password Reset", msg)) {
+            await ProgressBar.ShowSpinnerAsync("Reset Passwords");
+            foreach (var o in SelectedDataItems) {
+                var u = (IdentityUser)o;
+                var p = await dbc.Person.FirstOrDefaultAsync(x => x.Email.ToLower() == u.Email.ToLower());
+                if (p != null) {
+                    var token = await UserManager.GeneratePasswordResetTokenAsync(u);
+                    var result = await UserManager.ResetPasswordAsync(u, token, p.PersonIdentity);
+                }
+            }
+            await RefreshData();
+            await ProgressBar.Close();
+            await messageBox.ShowOkOnlyAsync("Password Reset", "Selected passwords have been reset.");
+        }
+    }
+
+    async Task OnSetEmailConfirmed() {
+        var msg =
+                "<p>This procedure will set the selected login's Email Confirmed status to Confirmed (true). " +
+                "Email confirmation is designed to be self-service. " +
+                "This procedure is intended to assist those who may be having issues with email and therefore cannot confirm.</p> " +
+                "<p>The procedure is safe to execute and may be re-executed as often as required. Note there is no procedure to unset Email Confirmation.</p>" +
+                "<p>Do you wish to continue?";
+        if (await messageBox.ShowAsync("Set Email Confirmed", msg)) {
+            await ProgressBar.ShowSpinnerAsync("Set Email Confirmed");
+            foreach (var o in SelectedDataItems) {
+                var u = (IdentityUser)o;
+                var token = await UserManager.GenerateEmailConfirmationTokenAsync(u);
+                await UserManager.ConfirmEmailAsync(u, token);
+            }
+            await RefreshData();
+            await ProgressBar.Close();
+            await messageBox.ShowOkOnlyAsync("Set Email Confirmed", "Selected login emails have been confirmed");
+        }
+    }
+    async Task OnPopulateLogins() {
+        var msg =
+            "<p>You are about to populate default user logins from participant email addresses using the " +
+            "<strong>Member ID</strong> as the password.<p>" +
+            "Normally, this is only performed on initial database load as member registration and " +
+            "password maintenance are designed to be self-service. However, this procedure is safe to re-execute as often " +
+            "as required as only logins that do not already exist will be created.<p>" +
+            "<p>Where an email address is shared by a male and female, the male's Member ID will be used as the password. " +
+            "Where an email address is shared by members with the same gender, the first Member ID in alphabetical order will be used.</p>" +
+            "<p>Do you wish to continue?";
+        if (await messageBox.ShowAsync("Populate Logins", msg)) {
+            var hasher = new PasswordHasher<IdentityUser>();
+            var max = dbc.Person.Count(x => x.DateCeased == null && !string.IsNullOrWhiteSpace(x.Email));
+            var count = 0;
+            var processed = 0;
+            await ProgressBar.ShowAsync("Populate Logins", max);
+            foreach (var p in dbc.Person
+                            .OrderByDescending(x => x.Gender).ThenBy(x => x.LastName).ThenBy(x => x.FirstName)
+                            .Where(x => x.DateCeased == null && !string.IsNullOrWhiteSpace(x.Email))) {
+                await ProgressBar.SetValueAsync(count++);
+                if (await UserManager.FindByEmailAsync(p.Email) == null) {
+                    var user = new IdentityUser() {
+                            Email = p.Email,
+                            UserName = p.Email,
+                            EmailConfirmed = true,
+                            PasswordHash = hasher.HashPassword(null, p.PersonIdentity)
+                        };
+                    await UserManager.CreateAsync(user);
+                    processed++;
+                }
+            }
+            await RefreshData();
+            await ProgressBar.Close();
+            await messageBox.ShowAsync("Login Population Complete", $"{processed} logins have been created.");
+        }
+    }
+
+    async Task OnCreateDomainLogin() {
+       await createDomainLogin.ShowAsync();
+    }
+
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+}

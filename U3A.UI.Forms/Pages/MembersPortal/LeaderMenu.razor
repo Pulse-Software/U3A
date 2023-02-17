@@ -1,0 +1,555 @@
+﻿@inherits LayoutComponentBase
+
+@layout BasicLayout
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@inject NavigationManager NavigationManager
+@inject SignInManager<IdentityUser> SignInMgr
+@inject Blazored.LocalStorage.ILocalStorageService localStorage
+@inject IJSRuntime js
+
+@implements IDisposable
+@using Microsoft.AspNetCore.Identity
+@using System.Web
+
+@attribute [Authorize]
+
+
+@if (!IsReady) {
+    <p><em>Loading...</em></p>
+}
+else {
+    <MessageBox @ref="@messageBox" />
+    <SelectEnrolmentType @ref=@selectEnrolmentType EnrolmentType="enrolmentTypeSelected" />
+
+    @if (menuSelection != MenuOptions.RecordAttendance) {
+        <DxFormLayout class="mx-4 w-100 d-block">
+            <div class="card px-2 col-12 col-lg-8 col-xl-6 mx-auto mb-2">
+                <div class="mt-1 text-center alert alert-success col-12 py-1 py-lg-3">@welcomeText</div>
+                <TermAndCourse @ref="termAndCourse"
+                       dbContext="dbc"
+                       Enabled=@(menuSelection == MenuOptions.Nothing)
+                       OnTermAndCourseCancelled="OnTermAndCourseCancelled" />
+            </div>
+        </DxFormLayout>
+    }
+
+    @switch (menuSelection) {
+        case MenuOptions.StudentLookup:
+            <DxFormLayout class="mx-4 w-100 d-block">
+                <div class="col-12 col-lg-8 col-xl-6 mx-auto mt-2">
+                    <DxFormLayoutGroup Caption="Student Lookup" ColSpanMd="12">
+                        <DxFormLayoutItem Caption="Select" ColSpanLg="12">
+                            <DxComboBox Data="@Students"
+                            AllowUserInput=true
+                            ClearButtonDisplayMode="DataEditorClearButtonDisplayMode.Auto"
+                            FilteringMode="DataGridFilteringMode.Contains"
+                            ListRenderMode="ListRenderMode.Virtual"
+                            TextFieldName="@nameof(Person.FullName)"
+                            ValueChanged="@((Person student) => SelecteStudentChanged(student))"
+                            Value="@selectedStudent">
+                                <DxListEditorColumn FieldName="@nameof(Person.FirstName)"
+                                        Caption="First Name" />
+                                <DxListEditorColumn FieldName="@nameof(Person.LastName)"
+                                        Caption="Last Name" />
+                            </DxComboBox>
+                            @if (selectedStudent != null) {
+                                <table class="table mt-2">
+                                    <tbody>
+                                        <tr class="d-flex">
+                                            <td class="col-md-2"><strong>Name:</strong></td>
+                                            <td class="col-md-10">@selectedStudent.FullName</td>
+                                        </tr>
+                                        @{
+                                            if (!string.IsNullOrWhiteSpace(selectedStudent?.HomePhone)) {
+                                                <tr class="d-flex">
+                                                    <td class="col-md-2"><strong>Home:</strong></td>
+                                                    <td class="col-md-10">@selectedStudent.HomePhone</td>
+                                                </tr>
+                                            }
+                                            if (!string.IsNullOrWhiteSpace(selectedStudent?.Mobile)) {
+                                                <tr class="d-flex">
+                                                    <td class="col-md-2"><strong>Mobile:</strong></td>
+                                                    <td class="col-md-10">@selectedStudent.Mobile</td>
+                                                </tr>
+                                            }
+                                        }
+                                        <tr class="d-flex">
+                                            <td class="col-md-2"><strong>ICE Phone:</strong></td>
+                                            <td class="col-md-10">@selectedStudent.ICEPhone</td>
+                                        </tr>
+                                        <tr class="d-flex">
+                                            <td class="col-md-2"><strong>ICE Contact:</strong></td>
+                                            <td class="col-md-10">@selectedStudent.ICEContact</td>
+                                        </tr>
+                                        <tr class="d-flex">
+                                            <td class="col-md-2"><strong>Address:</strong></td>
+                                            <td class="col-md-10">@($"{selectedStudent.Address} {selectedStudent.City} {selectedStudent.State}")</td>
+                                        </tr>
+                                        <tr class="d-flex">
+                                            @if (!string.IsNullOrWhiteSpace(selectedStudent.Email)) {
+                                                <td class="col-md-2"><strong>Email:</strong></td>
+                                                <td class="col-md-10">@selectedStudent.Email</td>
+                                            }
+                                        </tr>
+                                        <tr class="d-flex">
+                                            <td class="col-md-2"><strong>Status:</strong></td>
+                                            <td class="col-md-10">
+                                                @((selectedEnrolment.IsWaitlisted) ? "Waitlisted" : $"Enrolled ({selectedEnrolment.DateEnrolled?.ToShortDateString()})")
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                                <div class="input-group mb-1">
+                                    @if (!string.IsNullOrWhiteSpace(selectedStudent.Mobile)) {
+                                        <DxButton CssClass="flex-grow-1"
+                              IconCssClass="bi bi-phone"
+                              Text="SMS"
+                              RenderStyle="@ButtonRenderStyle.Primary"
+                              RenderStyleMode="ButtonRenderStyleMode.Outline"
+                              Click="() => OnSMS(selectedStudent.Mobile)" />
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(selectedStudent.HomePhone)) {
+                                        <DxButton CssClass="flex-grow-1"
+                              IconCssClass="bi bi-telephone"
+                              Text="Home"
+                              RenderStyleMode="ButtonRenderStyleMode.Outline"
+                              RenderStyle="@ButtonRenderStyle.Primary"
+                              Click="() => OnPhone(selectedStudent.HomePhone)" />
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(selectedStudent.Mobile)) {
+                                        <DxButton CssClass="flex-grow-1"
+                              IconCssClass="bi bi-phone"
+                              Text="Mobile"
+                              RenderStyleMode="ButtonRenderStyleMode.Outline"
+                              RenderStyle="@ButtonRenderStyle.Primary"
+                              Click="() => OnPhone(selectedStudent.Mobile)" />
+                                    }
+                                    <DxButton CssClass="flex-grow-1"
+                              IconCssClass="bi bi-telephone"
+                              Text="ICE"
+                              RenderStyleMode="ButtonRenderStyleMode.Outline"
+                              RenderStyle="@ButtonRenderStyle.Primary"
+                              Click="() => OnPhone(selectedStudent.ICEPhone)" />
+                                </div>
+                            }
+                        </DxFormLayoutItem>
+                    </DxFormLayoutGroup>
+                </div>
+            </DxFormLayout>
+            break;
+
+        case MenuOptions.Email:
+            <DxFormLayout class="mx-4 w-100 d-block">
+                <div class="col-12 col-lg-8 col-xl-6 mx-auto my-2">
+                    <StudentGrid @ref="studentGrid"
+                     Enrolments="EnrolmentsToSelectFrom"
+                     Settings="settings" />
+                    <DxButton Text="Email Selected Students"
+                  IconCssClass="bi-envelope menu-icon me-3 h2"
+                  CssClass="col-12 mt-1"
+                  Click="@(e => GetStudentEmailAddressList())"
+                  RenderStyle="ButtonRenderStyle.Primary"
+                  RenderStyleMode="ButtonRenderStyleMode.Outline">
+                    </DxButton>
+                </div>
+            </DxFormLayout>
+            break;
+
+        case MenuOptions.SMS:
+            <DxFormLayout class="mx-4 w-100 d-block">
+                <div class="col-12 col-lg-8 col-xl-6 mx-auto my-2">
+                    <StudentGrid @ref="studentGrid"
+                     Enrolments="EnrolmentsToSelectFrom"
+                     Settings="settings" />
+                    <DxButton Text="SMS Selected Students"
+                  IconCssClass="bi-phone menu-icon me-3 h2"
+                  CssClass="col-12 mt-1"
+                  Click="@(e => GetStudentSMSAddressList())"
+                  RenderStyle="ButtonRenderStyle.Primary"
+                  RenderStyleMode="ButtonRenderStyleMode.Outline">
+                    </DxButton>
+                </div>
+            </DxFormLayout>
+            break;
+
+        case MenuOptions.ConfigureEmail:
+            <DxFormLayout class="mx-4 w-100 d-block">
+                <div class="col-12 col-lg-8 col-xl-6 mx-auto my-2">
+                    <p>
+                        <strong>Multiple recipient email delimiter</strong><br />
+                        We need to delimit each address when sending email to multiple recipients.
+                        Most email clients will accept a comma (,) as the delimitor and as this is the default you will not have to change anything.
+                    </p>
+                    <p>
+                        The exception is Microsoft Outlook (Desktop version) which uses a semi-colon (;).
+                    </p>
+                    <InputRadioGroup @bind-Value="@emailDelimiter">
+                        <div class="col-12 mt-3"><InputRadio Value="0" />I <strong>do not</strong> use Outlook (Desktop) on this device</div>
+                        <div class="col-12 mt-3"><InputRadio Value="1" />I <strong>do</strong> use Outlook (Desktop) on this device</div>
+                    </InputRadioGroup>
+                    <DxButton Text="Save Configuration"
+                  IconCssClass="bi bi-save menu-icon me-3 h2"
+                  CssClass="col-12 mt-3"
+                  Click="@(e => OnSaveEmailDelimiter())"
+                  RenderStyle="ButtonRenderStyle.Primary"
+                  RenderStyleMode="ButtonRenderStyleMode.Outline">
+                    </DxButton>
+                </div>
+            </DxFormLayout>
+            break;
+
+        case MenuOptions.RecordAttendance:
+            <DxFormLayout class="mx-lg-4 w-100 d-block">
+                <div class="card vh-50 m-auto my-1 px-4 col-12">
+                    <AttendClassMnt IsMemberPortal=true
+                        SelectedTerm="selectedTerm"
+                        SelectedCourse="selectedCourse"
+                        SelectedClass="selectedClass" />
+                </div>
+            </DxFormLayout>
+            break;
+
+        case MenuOptions.CancelClass:
+            <DxFormLayout class="mx-auto col-12">
+                <DxFormLayoutGroup Caption="Cancel Class"
+                       ColSpanXs=12 ColSpanLg=8 ColSpanXxl=6
+                       CssClass="mx-auto my-2 p-4">
+                    <DxFormLayoutItem Caption="Select the Class to cancel">
+                        <DxComboBox Data="@ClassDates"
+                        TextFieldName="@nameof(ClassDate.DateName)"
+                        @bind-Value="@SelectedClassDate" />
+                    </DxFormLayoutItem>
+                    <DxFormLayoutItem Caption="Cancellation Reason">
+                        <DxTextBox @bind-Text=@CancellationReason />
+                    </DxFormLayoutItem>
+                    <div class="input-group m-2">
+                        <div class="flex-grow-4 mt-1">Are you sure you wish to cancel this class?</div>
+                        <DxButton Text="Yes, I am sure"
+                      IconCssClass="bi bi-emoji-frown menu-icon"
+                      CssClass="flex-grow-1"
+                      Click="DoCancellation"
+                      RenderStyle="ButtonRenderStyle.Primary"
+                      RenderStyleMode="ButtonRenderStyleMode.Outline">
+                        </DxButton>
+                    </div>
+                </DxFormLayoutGroup>
+            </DxFormLayout>
+            break;
+
+        default:
+            <DxFormLayout class="mx-4 w-100 d-block">
+                <div class="col-12 col-lg-8 col-xl-6 mx-auto mt-2 d-block">
+                    <DxButton Text="Lookup Student / ICE Details"
+                  IconCssClass="bi bi-search menu-icon me-3 h2"
+                  CssClass="col-12 mb-1"
+                  Click="@(e => OnMenuSelected(MenuOptions.StudentLookup))"
+                  RenderStyle="ButtonRenderStyle.Primary"
+                  RenderStyleMode="ButtonRenderStyleMode.Outline">
+                    </DxButton>
+                    <DxButton Text="Email Students"
+                  IconCssClass="bi bi-envelope menu-icon me-3 h2"
+                  CssClass="col-12 mb-1"
+                  Click="@(e => OnMenuSelected(MenuOptions.Email))"
+                  RenderStyle="ButtonRenderStyle.Primary"
+                  RenderStyleMode="ButtonRenderStyleMode.Outline">
+                    </DxButton>
+                    <DxButton Text="SMS Students"
+                  IconCssClass="bi bi-phone menu-icon me-3 h2"
+                  CssClass="col-12 mb-1"
+                  Click="@(e => OnMenuSelected(MenuOptions.SMS))"
+                  RenderStyle="ButtonRenderStyle.Primary"
+                  RenderStyleMode="ButtonRenderStyleMode.Outline">
+                    </DxButton>
+                    <DxButton Text="Record Attendance"
+                  IconCssClass="bi bi-person-check menu-icon me-3 h2"
+                  CssClass="col-12 mb-1"
+                  Click="@(e => OnMenuSelected(MenuOptions.RecordAttendance))"
+                  RenderStyle="ButtonRenderStyle.Primary"
+                  RenderStyleMode="ButtonRenderStyleMode.Outline">
+                    </DxButton>
+                    <DxButton Text="Cancel Class"
+                  IconCssClass="bi bi-emoji-frown menu-icon me-3 h2"
+                  CssClass="col-12 mb-1"
+                  Click="@(e => OnMenuSelected(MenuOptions.CancelClass))"
+                  RenderStyle="ButtonRenderStyle.Primary"
+                  RenderStyleMode="ButtonRenderStyleMode.Outline">
+                    </DxButton>
+                    <DxButton Text="Configure Email"
+                  IconCssClass="bi bi-gear menu-icon me-3 h2"
+                  CssClass="col-12 mb-1"
+                  Click="@(e => OnMenuSelected(MenuOptions.ConfigureEmail))"
+                  RenderStyle="ButtonRenderStyle.Primary"
+                  RenderStyleMode="ButtonRenderStyleMode.Outline">
+                    </DxButton>
+                </div>
+            </DxFormLayout>
+            break;
+    }
+    <DxFormLayout class="mx-4 w-100 d-block">
+        <div class="col-12 col-lg-8 col-xl-6 mx-auto mt-2">
+            <DxButton Text="Return to menu" id="exitButton"
+                  IconCssClass="bi-door-closed menu-icon me-3 h2"
+                  CssClass="col-12 mb-1"
+                  Click="@(e => OnCancel())"
+                  RenderStyle="ButtonRenderStyle.Primary"
+                  RenderStyleMode="ButtonRenderStyleMode.Outline">
+            </DxButton>
+        </div>
+    </DxFormLayout>
+}
+
+@code {
+    [CascadingParameter]
+    LoginState? loginState { get; set; }
+
+    [CascadingParameter(Name = "QueryResult")]
+    string? QueryResult { get; set; }
+
+    [Parameter]
+    public EventCallback<PortalMenuResult> OnSelectedOptionCompleted { get; set; }
+
+    int emailDelimiter;
+    Term? selectedTerm { get; set; }
+    Course? selectedCourse { get; set; }
+    Class? selectedClass { get; set; }
+    TermAndCourse? termAndCourse;
+    StudentGrid? studentGrid;
+    MessageBox? messageBox;
+    SelectEnrolmentType? selectEnrolmentType;
+    int enrolmentTypeSelected = 1;
+
+    private List<ClassDate> ClassDates;
+    ClassDate? SelectedClassDate;
+    string CancellationReason = string.Empty;
+
+    List<Enrolment>? Enrolments { get; set; } // Active & Waitlisted
+    List<Enrolment>? EnrolmentsToSelectFrom { get; set; }
+    Enrolment? selectedEnrolment = new Enrolment();
+    List<Person>? Students { get; set; } = new List<Person>();
+    Person? selectedStudent;
+    bool isApple;
+
+    bool IsReady;
+    bool IsSmallLayout;
+    SystemSettings? settings;
+    Term? term;
+    MarkupString? message;
+    MarkupString welcomeText;
+    string? SuccessMsg = null;
+    U3ADbContext dbc { get; set; }
+    LocalTime localTime;
+
+
+    enum MenuOptions
+    {
+        Nothing,
+        StudentLookup,
+        Email,
+        SMS,
+        RecordAttendance,
+        CancelClass,
+        ConfigureEmail
+    }
+    MenuOptions menuSelection = MenuOptions.Nothing;
+
+    protected override async Task OnInitializedAsync() {
+        await base.OnInitializedAsync();
+        // wire up the data
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+        settings = await dbc.SystemSettings.FirstOrDefaultAsync();
+        IsReady = true;
+    }
+
+    protected override void OnParametersSet() {
+        base.OnParametersSet();
+        var email = loginState.LoginEmail;
+        if (loginState.SelectedPerson != null) {
+            var welcome = $"Welcome <strong>{loginState.SelectedPerson.FullName}</strong>!";
+            welcomeText = new MarkupString(welcome);
+        }
+        else {
+            welcomeText = new MarkupString($"Welcome <strong>{loginState.LoginEmail}</strong>!");
+        }
+    }
+
+    protected override void OnAfterRender(bool firstRender) {
+        base.OnAfterRender(firstRender);
+        if (firstRender) {
+            localTime = new LocalTime(js);
+        }
+    }
+
+    async Task OnSaveEmailDelimiter() {
+        var delimiter = (emailDelimiter == 0) ? "," : ";";
+        var name = (emailDelimiter == 0) ? "comma" : "semi-colon";
+        await localStorage.SetItemAsync("emailDelimiter", delimiter);
+        await messageBox.ShowOkOnlyAsync("Email Delimiter Saved", $"Your email delimiter has been saved as {name} ({delimiter}).");
+        menuSelection = MenuOptions.Nothing;
+    }
+
+    async Task OnMenuSelected(MenuOptions selection) {
+        if (termAndCourse?.selectedTerm == null) return;
+        if (termAndCourse?.selectedCourse == null) return;
+        if (termAndCourse?.selectedClass == null) return;
+        if (termAndCourse?.Enrolments == null) return;
+        selectedTerm = termAndCourse.selectedTerm;
+        selectedCourse = termAndCourse.selectedCourse;
+        selectedClass = termAndCourse.selectedClass;
+        Enrolments = termAndCourse.Enrolments;
+        Students.Clear();
+        foreach (var e in Enrolments) { Students.Add(e.Person); }
+        selectedStudent = null;
+        menuSelection = selection;
+        if (menuSelection == MenuOptions.Email || menuSelection == MenuOptions.SMS) {
+            if (await selectEnrolmentType.ShowAsync()) {
+                switch (selectEnrolmentType.EnrolmentType) {
+                    case 1:
+                        EnrolmentsToSelectFrom = Enrolments.Where(x => !x.IsWaitlisted).ToList();
+                        break;
+                    case 2:
+                        EnrolmentsToSelectFrom = Enrolments.Where(x => x.IsWaitlisted).ToList();
+                        break;
+                    default:
+                        EnrolmentsToSelectFrom = Enrolments;
+                        break;
+                }
+            }
+            else { menuSelection = MenuOptions.Nothing; };
+        }
+        if (menuSelection == MenuOptions.CancelClass) {
+            using (var dbc = U3Adbfactory.CreateDbContext()) {
+                var now = (await localTime.GetLocalTimeAsync()).Date;
+                ClassDates = (await BusinessRule.SelectableAttendanceDatesAsync(dbc,
+                                    selectedTerm,
+                                    selectedClass,
+                                    selectedTerm.EndDate)).Where(x => x.Date >= now).ToList();
+                if (ClassDates.Count >= 0) { SelectedClassDate = ClassDates[0]; }
+                else {
+                    await messageBox.ShowOkOnlyAsync("There are no classes",
+                                 "There are no classes in the current term to cancel.");
+                }
+            }
+        }
+    }
+
+    async Task GetStudentEmailAddressList() {
+        if (studentGrid == null) return;
+        if (studentGrid.SelectedDataItems == null) return;
+        var delimiter = await localStorage.GetItemAsync<string>("emailDelimiter");
+        if (string.IsNullOrWhiteSpace(delimiter)) { delimiter = ","; }
+        string mailto = $"mailto:?subject=U3A Course: {selectedCourse.Name}&bcc=";
+        foreach (var obj in studentGrid.SelectedDataItems) {
+            var e = (Enrolment)obj;
+            if (!string.IsNullOrWhiteSpace(e.Person.Email)) {
+                mailto += $"{e.Person.Email}{delimiter}";
+            }
+        }
+        try {
+            NavigationManager.NavigateTo(HttpUtility.UrlDecode(mailto.Remove(mailto.Length - 1)));
+        }
+        catch (Exception ex) {
+            await messageBox.ShowOkOnlyAsync("Error Activating Mail Client",
+                            $@"<p>A mail client is required to process your email.</p>" +
+                            $"<p>Error: {ex.Message}");
+        }
+    }
+    async Task GetStudentSMSAddressList() {
+        if (studentGrid == null) return;
+        if (studentGrid.SelectedDataItems == null) return;
+        isApple = await js.InvokeAsync<bool>("IsApple");
+        var smsto = $"sms:";
+        if (isApple) {
+            smsto = $"sms:/open?addresses=";
+        }
+        foreach (var obj in studentGrid.SelectedDataItems) {
+            var e = (Enrolment)obj;
+            if (!string.IsNullOrWhiteSpace(e.Person.Mobile)) {
+                smsto += $"{e.Person.Mobile.Trim().Replace(" ", "")},";
+            }
+        }
+        try {
+            NavigationManager.NavigateTo(smsto.Remove(smsto.Length - 1));
+        }
+        catch (Exception ex) {
+            await messageBox.ShowOkOnlyAsync("Error Activating Phone App",
+                                                        $@"<p>A phone app is required to process your email.</p>
+                 <p>Error: {ex.Message}");
+        }
+    }
+
+    async Task SelecteStudentChanged(Person student) {
+        selectedStudent = student;
+        selectedEnrolment = Enrolments.FirstOrDefault(x => x.PersonID == selectedStudent.ID);
+    }
+
+    async Task DoCancellation() {
+        if (string.IsNullOrWhiteSpace(CancellationReason)) {
+            await messageBox.ShowOkOnlyAsync("No Reason!",
+                                "You must provide a reason for the cancellation.");
+        }
+        else {
+            var d = new DateTime(SelectedClassDate.Date.Year,
+                                        SelectedClassDate.Date.Month,
+                                        SelectedClassDate.Date.Day);
+            using (var dbc = U3Adbfactory.CreateDbContext()) {
+                var cancel = new CancelClass() {
+                        //Class = await dbc.Class.FindAsync( selectedClass.ID),
+                        ClassID = selectedClass.ID,
+                        StartDate = d,
+                        EndDate = d.AddDays(1).AddSeconds(-1),
+                        Reason = CancellationReason
+                    };
+                await dbc.AddAsync(cancel);
+                await dbc.SaveChangesAsync();
+            }
+            await messageBox.ShowOkOnlyAsync("Class Cancelled",
+                            "Your class has been cancelled. Please notify your students and the membership office by SMS or email, thank you.");
+        }
+    }
+
+    async Task OnCancel() {
+        await ReturnToMenu(PortalMenuResult.MenuOptionCancelled);
+    }
+
+    async Task ReturnToMenu(PortalMenuResult result) {
+        if (menuSelection == MenuOptions.Nothing) {
+            await OnSelectedOptionCompleted.InvokeAsync(result);
+        }
+        else menuSelection = MenuOptions.Nothing; //redisplay sub-menu
+    }
+    async Task OnTermAndCourseCancelled() {
+        await ReturnToMenu(PortalMenuResult.MemberDetailsCompleted);
+    }
+
+    async Task OnSMS(string phoneNo) {
+        var phone = HttpUtility.UrlEncode(phoneNo.Trim().Replace(" ", ""));
+        string smsto = $"sms:{phone}";
+        try {
+            NavigationManager.NavigateTo(smsto, true);
+        }
+        catch (Exception ex) {
+            await messageBox.ShowOkOnlyAsync("Error Activating SMS Client",
+                            $@"<p>An SMS client (Phone) is required to process your request.</p>" +
+                            $"<p>Error: {ex.Message}");
+        }
+    }
+
+    async Task OnPhone(string phoneNo) {
+        var phone = HttpUtility.UrlEncode(phoneNo.Trim().Replace(" ", ""));
+        string phoneURL = $"tel:{phone}";
+        try {
+            NavigationManager.NavigateTo(phoneURL, true);
+        }
+        catch (Exception ex) {
+            await messageBox.ShowOkOnlyAsync("Error Activating Phone",
+                            $@"<p>A Phone is required to process your request.</p>" +
+                            $"<p>Error: {ex.Message}");
+        }
+    }
+
+
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+
+}

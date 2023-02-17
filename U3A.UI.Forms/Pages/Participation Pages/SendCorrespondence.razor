@@ -1,0 +1,296 @@
+﻿@page "/SendCorrespondence"
+
+@using System
+@using System.IO
+@using Microsoft.AspNetCore.Hosting
+@using Microsoft.Extensions.Logging
+@using Microsoft.EntityFrameworkCore.Query
+
+@inject IJSRuntime js
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@inject ILogger<SendCorrespondence> Logger
+@inject IWebHostEnvironment Environment
+@inject NavigationManager NavigationManager
+@implements IDisposable
+
+
+@attribute [Authorize]
+
+@if (!IsReady) {
+    <p><em>Loading...</em></p>
+}
+else {
+    <h3>Send Correspondence</h3>
+    <MessageBox @ref="@messageBox" PopupWidth="@messageBoxWidth" />
+    <Progress @ref="@ProgressBar" />
+
+    <ErrorPopup @ref="@ErrorPopup" PopupHeader="@ErrorHeader" PopupMessage="@ErrorMessage" />
+    <DxFormLayout>
+        <DxFormLayoutItem ColSpanMd="3" Caption="Document Type" CaptionPosition="CaptionPosition.Vertical">
+            <Template>
+                <DxComboBox Data="@docTypeList"
+                        Value="@selectedDocType"
+                        ValueChanged="@((String docType) => SelectedDocTypeChanged(docType))" />
+            </Template>
+        </DxFormLayoutItem>
+        <DxFormLayoutItem ColSpanMd="3" Caption="Send Via" CaptionPosition="CaptionPosition.Vertical">
+            <Template>
+                <DxComboBox Data="@sendViaList"
+                        Value="@selectedSendVia"
+                        ValueChanged="@((String sendViaType) => SelectedSendViaChanged(sendViaType))" />
+            </Template>
+        </DxFormLayoutItem>
+        <DxFormLayoutItem ColSpanMd="3" Caption="Status" CaptionPosition="CaptionPosition.Vertical">
+            <Template>
+                <DxComboBox Data="@statusList"
+                        Value="@selectedStatus"
+                        ValueChanged="@((String statusType) => SelectedStatusChanged(statusType))" />
+            </Template>
+        </DxFormLayoutItem>
+        <DxFormLayoutItem ColSpanMd="3" Caption="Selected" CaptionPosition="CaptionPosition.Vertical">
+            <Template>
+                <DxButton Text="Delete"
+                      Click="@OnDeleteSelection" Enabled="@(SelectedDataItems != null && SelectedDataItems.Any())"
+                      RenderStyle="ButtonRenderStyle.Primary" CssClass="col-3" />
+                <DxButton Text="Preview"
+                      Click="@OnPreview" Enabled="@(SelectedDataItems != null && SelectedDataItems.Any())"
+                      RenderStyle="ButtonRenderStyle.Primary" CssClass="col-3" />
+                <DxButton Text="Send Mail"
+                      Click="@OnCreateMail" Enabled="@(SelectedDataItems != null && SelectedDataItems.Any())"
+                      RenderStyle="ButtonRenderStyle.Primary" CssClass="col-5" />
+            </Template>
+        </DxFormLayoutItem>
+    </DxFormLayout>
+
+    <div class="pb-1" />
+    <GridToolbar @ref="Toolbar" LinkedGrid=@mainGrid />
+    <DxGrid Data="@SendMail" @ref=@mainGrid CssClass="h-75"
+        @bind-SelectedDataItems="@SelectedDataItems"
+        ShowFilterRow="false"
+        ShowAllRows="false"
+        KeyFieldName="ID"
+        ValidationEnabled="true"
+        PageSize="30"
+        PageSizeSelectorVisible="true"
+        PageSizeSelectorItems="@(new int[] {10,15, 20,30, 40,60,80, 100, 200,400 })"
+        PageSizeSelectorAllRowsItemVisible="true"
+        PagerSwitchToInputBoxButtonCount="10"
+        PagerVisibleNumericButtonCount="10"
+        PagerVisible="true"
+        SelectionMode="GridSelectionMode.Multiple">
+        <Columns>
+            <DxGridSelectionColumn Width="2rem" />
+            <DxGridCommandColumnEx Width="4rem" DeleteButtonVisible="true" NewButtonVisible="false" EditButtonVisible="false" />
+            <DxGridDataColumn Width="8rem" Caption="Created" FieldName="CreatedOn" DisplayFormat="{0:dd-MMM-yyyy}" />
+            <DxGridDataColumn Width="12rem" Caption="Document" FieldName="DocumentName" />
+            <DxGridDataColumn Width="12rem" Caption="Send To" FieldName="Person.FullName" />
+            <DxGridDataColumn Width="6rem" Caption="Send Via" FieldName="Person.Communication" />
+            <DxGridDataColumn Caption="Email" FieldName="Person.Email" />
+            <DxGridDataColumn Caption="Status" FieldName="Status" />
+        </Columns>
+
+    </DxGrid>
+
+}
+
+@code {
+    bool IsReady;
+    private List<SendMail> SendMail { get; set; }
+    IReadOnlyList<object>? SelectedDataItems { get; set; }
+    ProFormaReportFactory reportFactory;
+    MessageBox? messageBox;
+    string? messageBoxWidth;
+
+    IGrid? mainGrid { get; set; }
+    ErrorPopup? ErrorPopup { get; set; }
+    GridToolbar? Toolbar;
+    string ErrorHeader;
+    string ErrorMessage;
+    Progress? ProgressBar;
+    List<String> statusList = new List<string>() { "Show All", "Ready To Send", "Accepted", "Not Accepted" };
+    List<String> sendViaList = new List<string>() { "Show All", "Email", "Post" };
+    List<String> docTypeList = new List<string>() { "Show All" };
+    string selectedStatus;
+    string selectedSendVia;
+    string selectedDocType;
+
+    U3ADbContext dbc { get; set; }
+
+    protected override async Task OnInitializedAsync() {
+        // wire up the data
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+        selectedStatus = statusList[0];
+        selectedSendVia = sendViaList[0];
+        selectedDocType = docTypeList[0];
+        docTypeList.AddRange(dbc.SendMail.Select(x => x.DocumentName).Distinct().ToArray());
+        GetData();
+        IsReady = true;
+    }
+
+    void SelectedDocTypeChanged(string docType) {
+        selectedDocType = docType;
+        GetData();
+    }
+    void SelectedSendViaChanged(string sendViaType) {
+        selectedSendVia = sendViaType;
+        GetData();
+    }
+    void SelectedStatusChanged(string statusType) {
+        selectedStatus = statusType;
+        GetData();
+    }
+
+    protected override void OnAfterRender(bool firstRender) {
+        // wire up the toolbar
+        base.OnAfterRender(firstRender);
+        if (Toolbar != null && mainGrid != null) { Toolbar.LinkedGrid = mainGrid; }
+    }
+
+    void GetData() {
+        mainGrid?.ClearSelection();
+        var mail = dbc.SendMail.Include(x => x.Person).AsQueryable();
+        if (selectedDocType != docTypeList[0]) {
+            mail = mail.Where(x => x.DocumentName == selectedDocType);
+        }
+        if (selectedSendVia != sendViaList[0]) {
+            mail = mail.Where(x => x.Person.Communication == selectedSendVia);
+        }
+        var successStatus = new List<string>() { "accepted", "ok" };
+        switch (selectedStatus) {
+            case "Ready To Send":
+                mail = mail.Where(x => string.IsNullOrWhiteSpace(x.Status));
+                break;
+            case "Accepted":
+                mail = mail.Where(x => successStatus.Contains(x.Status.ToLower()));
+                break;
+            case "Not Accepted":
+                mail = mail.Where(x => !successStatus.Contains(x.Status.ToLower()) && !string.IsNullOrWhiteSpace(x.Status));
+                break;
+            default:
+                break;
+        }
+        SendMail = mail.AsEnumerable().OrderBy(x => x.Person.FullNameAlpha).ToList();
+        StateHasChanged();
+    }
+
+    async Task OnPreview() {
+        await CreateMail(true);
+    }
+
+    async Task OnCreateMail() {
+        await CreateMail(false);
+    }
+
+    async Task CreateMail(bool IsPreview) {
+        var mailItems = 0;
+        var postItems = 0;
+        var s = new System.Diagnostics.Stopwatch();
+        var items = SelectedDataItems.Count();
+        var personEnrolments = new Dictionary<Guid, List<Enrolment>>();
+        s.Start();
+        reportFactory = new ProFormaReportFactory(Environment, U3Adbfactory, IsPreview);
+        var msg = (IsPreview) ? "Preparing Preview" : "Creating Mail Items";
+        await ProgressBar.ShowAsync($"{msg} ... Please Wait", items);
+        foreach (SendMail sm in SelectedDataItems) {
+            switch (sm.DocumentName) {
+                case "Cash Receipt":
+                    var receipt = await dbc.Receipt
+                                        .Include(x => x.Person)
+                                        .Where(x => x.ID == sm.RecordKey).FirstOrDefaultAsync();
+                    if (receipt != null)
+                    {
+                        sm.Status = await reportFactory.CreateCashReceiptProForma(receipt);
+                    }
+                    else sm.Status = "Receipt not found";
+                    break;
+                case "Participant Enrolment":
+                    var enrolment = await dbc.Enrolment
+                                        .Include(x => x.Person)
+                                        .Where(x => x.ID == sm.RecordKey).FirstOrDefaultAsync();
+                    if (enrolment != null)
+                    {
+                        var key = enrolment.PersonID;
+                        var theseEnrolments = new List<Enrolment>();
+                        if (!personEnrolments.TryGetValue(key, out theseEnrolments)) {
+                            theseEnrolments = new List<Enrolment>();
+                            personEnrolments.Add(key, theseEnrolments);
+                        }
+                        theseEnrolments.Add(enrolment);
+                    }
+                    else sm.Status = "Enrolment not found";
+                    break;
+                case "Leader Report":
+                    var leader = await dbc.Person
+                                        .Where(x => x.ID == sm.PersonID).FirstOrDefaultAsync();
+                    var enrolments = new List<Enrolment>();
+                    if (dbc.Class.Any(x => x.ID == sm.RecordKey)) {
+                        enrolments = dbc.Enrolment.Where(x => x.ClassID == sm.RecordKey
+                                                            && x.TermID == sm.TermID).ToList();
+                    }
+                    else {
+                        var course = dbc.Course.Find(sm.RecordKey);
+                        if (course != null) enrolments = dbc.Enrolment.Where(x => x.CourseID == course.ID
+                                                                                && x.TermID == sm.TermID).ToList();
+                    };
+                    if (leader != null && enrolments.Count > 0) {
+                        sm.Status = await reportFactory.CreateLeaderReportProForma(leader, enrolments.ToArray());
+                    }
+                    else { sm.Status = "Enrolments not found."; }
+                    break;
+                default:
+                    break;
+            }
+            mailItems++;
+            if (!IsPreview) await dbc.SaveChangesAsync();
+            await ProgressBar.SetValueAsync(mailItems);
+        }
+        await ProgressBar.ShowSpinnerAsync("Processing Enrolment Emails");
+        // process enrolments because they receive one email per member
+        var enrolmentResults = await reportFactory.CreateEnrolmentProForma(personEnrolments);
+        foreach (var kvp in enrolmentResults) {
+            mailItems++;
+            foreach (var sm in dbc.SendMail.Where(x => x.PersonID == kvp.Key)) {
+                if (string.IsNullOrWhiteSpace(sm.Status)) { sm.Status = kvp.Value; }
+                await ProgressBar.SetValueAsync(mailItems);
+            }
+            await ProgressBar.SetValueAsync(mailItems);
+        }
+        if (!IsPreview) await dbc.SaveChangesAsync();
+        // finish up
+        s.Stop();
+        await ProgressBar.Close();
+        if (!IsPreview) {
+            var elapsedTime = String.Format("{0:00}:{1:00}:{2:00}",
+            s.Elapsed.Hours, s.Elapsed.Minutes, s.Elapsed.Seconds);
+            postItems = reportFactory.PostalReports.Count();
+            //            messageBoxWidth = "33%";
+            msg = $"<p>{items} selected documents have been sent.</p>" +
+                    $"<p>There were {postItems} postal documents and {items - postItems} emails.<br/>" +
+                    $"Postal documents (if any) will be displayed when this message is closed. These must be printed or saved on your PC.</p>" +
+                    $"Elapsed time is: {elapsedTime}";
+            await messageBox.SetPopupWidth("33%");
+            await messageBox.ShowOkOnlyAsync("Communication Complete", msg);
+            GetData();
+            mainGrid.ClearSelection();
+            StateHasChanged();
+        }
+        var pdfFilename = reportFactory.CreatePostalPDF();
+        if (pdfFilename != null) {
+            var pdfPath = "Temp/" + pdfFilename;
+            await messageBox.SetPopupWidth("80%");
+            msg = (IsPreview) ? "Preview Mail Documents" : "Print Postal Documents";
+            await messageBox.ShowOkOnlyAsync(msg, @$"<iframe src='{pdfPath}' width='100%' height='800rem' />");
+        }
+    }
+
+    async Task OnDeleteSelection() {
+        dbc.RemoveRange(SelectedDataItems);
+        await dbc.SaveChangesAsync();
+        GetData();
+    }
+
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+
+}

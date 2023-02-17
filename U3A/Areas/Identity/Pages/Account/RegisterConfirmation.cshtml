@@ -1,0 +1,29 @@
+﻿@page
+@model RegisterConfirmationModel
+@{
+    ViewData["Title"] = "Register confirmation";
+}
+
+<h1>@ViewData["Title"]</h1>
+@{
+    if (@Model.DisplayConfirmAccountLink) {
+        <p>
+            This app does not currently have a real email sender registered, see <a href="https://aka.ms/aspaccountconf">these docs</a> for how to configure a real email sender.
+            Normally this would be emailed: <a id="confirm-link" href="@Model.EmailConfirmationUrl">Click here to confirm your account</a>
+        </p>
+    }
+    else {
+        <p>
+            Please check your email to confirm your account.The email might be located in ...
+            <ol>
+                <li>Your Inbox, Focused or Other</li>
+                <li>Your Junk Email</li>
+            </ol>
+        </p>
+        <p>
+            If the email is found in your Junk Email, right-click and mark it as Not Junk. You should then be able to click it's link.
+        </p>
+
+    }
+}
+

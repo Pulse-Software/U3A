@@ -1,0 +1,165 @@
+﻿@page "/AutoEnrolParticipants"
+
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@inject NavigationManager NavigationManager
+@implements IDisposable
+
+
+@attribute [Authorize]
+
+@if (!IsReady) {
+    <p><em>Loading...</em></p>
+}
+else {
+
+    <div class="container-md py-md-5">
+        <div class="row">
+            <div class="col col-md-2" />
+            <div class="col col-md-8 border border-primary py-2">
+                <h3>Auto-Enrol Participants</h3>
+
+                <p>
+                    This procedure will automatically enrol participants into their selected courses.<br />
+                    Auto-enrolment is considered a fair and equitable way of allocating participants to an oversubscribed course.
+                </p>
+                <p>The procedure allocates places as follows...</p>
+                <ol>
+                    <li>The first <strong>@settings.AutoEnrolNewParticipantPercent%</strong> of places are allocated to new participants, if any.</li>
+                    <li>The remainder of places are allocated on a <strong>@settings.AutoEnrolRemainderMethod</strong> basis.</li>
+                </ol>
+
+                <p>The parameters applied to these rules may be changed in System Settings.</p>
+@*                <p>
+                    <strong>Do you require Full Enrolment</strong> (see below) should only be checked once immediately prior to Term 1.<br />
+                    It auto-enrols every participant irrespective of their current waitlist status.
+                    If left unchecked, only current waitlisted enrolees will be auto-enrolled which is normal for Terms 2 thru 4.
+                </p>
+*@                <p>
+                    <strong>Is Term Auto-Enrolment Finalised?</strong> (see below) should be checked on the final auto-enrolment for the term.<br />
+                    Once checked, any future term enrolment will be automatically enrolled if a place is available.
+                    If left unchecked, enrolment requests will be waitlisted only.
+                </p>
+                <p>
+                    <strong>Queue email for ALL participants?</strong> (see below) should be checked on the first auto-enrolment for each term.<br />
+                    Normally, only participants whose enrolment waitlist status has changed will receive an email.
+                    If checked, an enrolment email will be queued for every participant irrespective of changed wiatlist status.
+                </p>
+
+
+                <MessageBox @ref="@messageBox" />
+
+                <DxFormLayout Enabled=@IsProcessing>
+                    <DxFormLayoutItem Caption="Current Enrolment Term" ColSpanMd="12">
+                        <DxComboBox Data="@terms" NullText="Select the Term to bring forward from."
+                                TextFieldName="@nameof(Term.TermSummary)"
+                                Value="@processTerm"
+                                ValueChanged="@((Term term) => OnTermChanged(term))" />
+                    </DxFormLayoutItem>
+@*                    <DxFormLayoutItem Caption="Do you require full enrolment?" ColSpanMd="12">
+                        <DxCheckBox @bind-Checked="@DoFullEnrolment" />
+                    </DxFormLayoutItem>
+*@                    <DxFormLayoutItem Caption="Is Term Auto-Enrolment Finalised?" ColSpanMd="12">
+                        <DxCheckBox @bind-Checked="@IsClassAllocationFinalised" />
+                    </DxFormLayoutItem>
+                    <DxFormLayoutItem Caption="Queue Email For ALL participants?" ColSpanMd="12">
+                        <DxCheckBox @bind-Checked="@ForceEmailQueue" />
+                    </DxFormLayoutItem>
+                    <p />
+                    <DxFormLayoutItem ColSpanMd="12">
+                        <Template>
+                            <DxButton Visible=@(!IsProcessing) Text="Process" RenderStyle="@ButtonRenderStyle.Primary" Click="@Process" />
+                            <DxButton Visible=@(!IsProcessing) Text="Cancel" RenderStyle="@ButtonRenderStyle.Secondary" Click="@Close" />
+                            <DxButton Context="buttonContext" Visible=@(IsProcessing)
+                                  RenderStyle="ButtonRenderStyle.Success" CssClass="col col-12"
+                                  RenderStyleMode="ButtonRenderStyleMode.Contained">
+                                <span class="spinner-border spinner-border-sm" role="status" />&nbsp;Processing
+                            </DxButton>
+                        </Template>
+                    </DxFormLayoutItem>
+                </DxFormLayout>
+
+            </div>
+            <div class="col col-md-2" />
+        </div>
+
+    </div>
+
+}
+@code {
+    bool IsReady;
+    bool IsProcessing;
+    bool IsClassAllocationFinalised;
+    bool DoFullEnrolment;
+    bool ForceEmailQueue;
+    string? errorMessage;
+    SystemSettings? settings;
+    Term? processTerm;
+    Term? FirstTermNextYear;
+    List<Term> terms { get; set; }
+
+    MessageBox? messageBox;
+    U3ADbContext dbc { get; set; }
+
+    protected override async Task OnInitializedAsync() {
+        // wire up the data
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+        settings = await dbc.SystemSettings.FirstOrDefaultAsync();
+        terms = await BusinessRule.SelectableRelaxedTermsAsync(dbc);
+        processTerm = await BusinessRule.CurrentTermAsync(dbc);
+        if (processTerm != null) {
+            FirstTermNextYear = await BusinessRule.FirstTermNextYearAsync(dbc, processTerm.Year);
+            if (FirstTermNextYear != null
+                && DateTime.Today >= FirstTermNextYear.EnrolmentStartDate) processTerm = FirstTermNextYear;
+        }
+        if (processTerm != null && processTerm.TermNumber == 1 && !dbc.Enrolment.Where(x => x.TermID == processTerm.ID).Any())
+            DoFullEnrolment = true;
+        else
+            DoFullEnrolment = false;
+        IsReady = true;
+    }
+
+    void OnTermChanged(Term newValue) {
+        processTerm = newValue;
+        if (processTerm != null && processTerm.TermNumber == 1)
+            DoFullEnrolment = true;
+        else DoFullEnrolment = false;
+        StateHasChanged();
+    }
+
+
+    async Task Process() {
+        if (await IsDataOk()) {
+            errorMessage = null;
+            IsProcessing = true;
+            StateHasChanged();
+            await BusinessRule.AutoEnrolParticipantsAsync(dbc, processTerm, 
+                                                            DoFullEnrolment, 
+                                                            IsClassAllocationFinalised,
+                                                            ForceEmailQueue);
+            IsProcessing = false;
+            StateHasChanged();
+            await messageBox.ShowOkOnlyAsync("Process Complete", "Enrolments have been allocated.");
+            NavigationManager.NavigateTo("/");
+        }
+    }
+
+    async Task<bool> IsDataOk() {
+        bool result = true;
+        string? msg = null;
+        if (processTerm == null) {
+            msg = "<p>*** You must select the current Term ***</p>";
+            await messageBox.ShowOkOnlyAsync("Select the Term", msg);
+            result = false;
+        }
+        return result;
+    }
+
+    void Close() {
+        NavigationManager.NavigateTo("/");
+    }
+
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+
+}

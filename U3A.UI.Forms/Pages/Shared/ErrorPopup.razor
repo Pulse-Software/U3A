@@ -1,0 +1,30 @@
+﻿
+
+    <DxPopup @ref="@Popup"
+         @bind-Visible=@Visible
+         HeaderText="@PopupHeader"
+         ShowFooter=true
+         BodyText="@PopupMessage"  >
+        <FooterContentTemplate>
+            <DxTextBox Text="@DateTime.Now.ToString()" ReadOnly="true" />
+            <DxButton CssClass="popup-button" RenderStyle="ButtonRenderStyle.Danger" Text="OK" Click="@(() => Visible = false)" />
+        </FooterContentTemplate>
+    </DxPopup>
+
+@code {
+    //[Parameter, EditorRequired]
+    public bool Visible { get; set; } = false;
+    [Parameter, EditorRequired]
+    public string? PopupMessage { get; set; } = null;
+    [Parameter, EditorRequired]
+    public string PopupHeader { get; set; }
+
+    DxPopup? Popup;
+
+    public async Task ShowPopupAsync()
+    {
+        await Popup.ShowAsync();
+        StateHasChanged();
+    }
+
+}

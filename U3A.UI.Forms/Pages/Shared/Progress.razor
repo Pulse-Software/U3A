@@ -1,0 +1,91 @@
+﻿
+<DxPopup Visible="@PopupVisible" @ref="@ProgressBar" Width="@PopupWidth"
+         ApplyBackgroundShading="true"
+         ShowCloseButton="false"
+         CloseOnEscape="false"
+         CloseOnOutsideClick="false"
+         ShowHeader=@ShowHeader
+         HeaderText=@Caption>
+    <BodyContentTemplate Context="PopupContext">
+        <div class="progress" hidden="@(!IsProgressBar)">
+            <div class="progress-bar" role="progressbar" style="width: @Percent;" aria-valuenow="@ValueNow" aria-valuemin="0" aria-valuemax="100">@Percent</div>
+        </div>
+
+        <div class="text-center" hidden=@IsProgressBar>
+            <span class="spinner-border spinner-border-sm" role="status" />
+        </div>
+
+    </BodyContentTemplate>
+</DxPopup>
+
+@code {
+    //style="visibility: @SpinnerVisibility"
+    [Parameter]
+    public bool PopupVisible { get; set; }
+    [Parameter]
+    public bool IsProgressBar { get; set; } = true;
+
+    int ValueNow { get; set; }
+    int MaxValue { get; set; }
+    string Percent { get; set; }
+    bool ShowHeader = true;
+
+    DxPopup? ProgressBar;
+
+    string Caption { get; set; }
+    string PopupWidth;
+
+    public async Task ShowAsync(string Caption, int MaxValue) {
+        IsProgressBar = true;
+        await Task.Run(() => {
+            this.Caption = Caption;
+            ValueNow = 0;
+            Percent = "0%";
+            PopupWidth = "";
+            this.MaxValue = MaxValue;
+            PopupVisible = true;
+            ShowHeader = true;
+        });
+        StateHasChanged();
+    }
+
+    public async Task ShowSpinnerAsync(string Caption) {
+        IsProgressBar = false;
+        await Task.Run(() => {
+            this.Caption = Caption;
+            PopupWidth = "auto";
+            ShowHeader = true;
+            PopupVisible = true;
+        });
+        StateHasChanged();
+    }
+
+    public async Task ShowSmallSpinnerAsync() {
+        IsProgressBar = false;
+        await Task.Run(() => {
+            PopupWidth = "auto";
+            ShowHeader = false;
+            PopupVisible = true;
+        });
+        StateHasChanged();
+    }
+
+    public async Task SetValueAsync(int ValueNow) {
+        await Task.Run(() => {
+            this.ValueNow = ValueNow;
+            if (MaxValue > 0) Percent = $"{Math.Round(((double)ValueNow / MaxValue) * 100, 0)}%";
+        });
+        StateHasChanged();
+    }
+
+
+    public async Task Close() {
+        await Task.Delay(100);
+        await Task.Run(() => {
+            PopupVisible = false;
+        });
+        Task.Delay(1000);
+        StateHasChanged();
+    }
+
+}

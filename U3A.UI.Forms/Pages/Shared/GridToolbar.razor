@@ -1,0 +1,206 @@
+﻿@using Microsoft.JSInterop
+@using DevExpress.Export
+@using System.Drawing
+@inject IJSRuntime js
+
+<DxLayoutBreakpoint MaxWidth="768"
+                    @bind-IsActive="@IsMobileLayout" />
+
+@if (!IsMobileLayout) {
+    <div class="d-print-none card w-100">
+        <DxToolbar ItemClick="@OnItemClick">
+            <Items>
+                <DxToolbarItem IconCssClass="bi bi-calendart" Text="Group Rows..."
+                           Alignment="ToolbarItemAlignment.Left">
+                    <Items>
+                        <DxToolbarItem IconCssClass="bi bi-arrows-collapse"
+                                   Name="CollapseGroups" Text="Collapse Group Rows"
+                                   Alignment="ToolbarItemAlignment.Left"
+                                   Tooltip="Collapse grouped rows">
+                        </DxToolbarItem>
+                        <DxToolbarItem IconCssClass="bi bi-arrows-expand"
+                                   Name="ExpandGroups" Text="Expand Group Rows"
+                                   Alignment="ToolbarItemAlignment.Left"
+                                   Tooltip="Expand grouped rows">
+                        </DxToolbarItem>
+                        <DxToolbarItem BeginGroup IconCssClass="bi bi-calendart" Text="Group Dates By"
+                                   Alignment="ToolbarItemAlignment.Left">
+                            <Items>
+                                <DxToolbarItem IconCssClass="bi bi-calender" Name="Day" Text="Day"
+                                           Tooltip="Group dates by day">
+                                </DxToolbarItem>
+                                <DxToolbarItem IconCssClass="bi bi-calender" Name="Month" Text="Month"
+                                           Tooltip="Group dates by month">
+                                </DxToolbarItem>
+                                <DxToolbarItem IconCssClass="bi bi-calender" Name="Year" Text="Year"
+                                           Tooltip="Group dates by year">
+                                </DxToolbarItem>
+                            </Items>
+                        </DxToolbarItem>
+                    </Items>
+                </DxToolbarItem>
+                <DxToolbarItem IconCssClass="bi bi-list-columns-reverse" Name="Choose" Text="Choose"
+                           Alignment="ToolbarItemAlignment.Right"
+                           CssClass="column-chooser-button"
+                           Tooltip="Customise column display">
+                </DxToolbarItem>
+                <DxToolbarItem IconCssClass="bi bi-funnel" Name="Filter" Text="Filter"
+                           Alignment="ToolbarItemAlignment.Right"
+                           Tooltip="Filter / search for records">
+                </DxToolbarItem>
+                <DxToolbarItem IconCssClass="bi bi-file-spreadsheet" Text="Excel Export"
+                           Alignment="ToolbarItemAlignment.Right">
+                    <Items>
+                        <DxToolbarItem IconCssClass="bi bi-file-spreadsheet" Name="ExportAll" Text="Export All"
+                                   Alignment="ToolbarItemAlignment.Right"
+                                   Tooltip="Export the entire grid to Excel">
+                        </DxToolbarItem>
+                        <DxToolbarItem IconCssClass="bi bi-file-spreadsheet" Name="ExportSelected" Text="Export Selected"
+                                   Alignment="ToolbarItemAlignment.Right"
+                                   Tooltip="Export selected rows to Excel">
+                        </DxToolbarItem>
+                    </Items>
+                </DxToolbarItem>
+            </Items>
+        </DxToolbar>
+    </div>
+}
+
+@code {
+
+    [Parameter, EditorRequired]
+    public IGrid? LinkedGrid { get; set; }
+
+    internal bool IsMobileLayout;
+    internal bool IsToggleExpanded { get; set; } = false;
+    internal string ExpandCollapseText { get; set; }
+
+    protected override void OnAfterRender(bool firstRender) {
+        base.OnAfterRender(firstRender);
+        if (LinkedGrid != null) {
+            LinkedGrid.BeginUpdate();
+            LinkedGrid.ShowGroupPanel = true;
+            LinkedGrid.ShowSearchBox = true;
+            LinkedGrid.SelectAllCheckboxMode = GridSelectAllCheckboxMode.AllPages;
+            LinkedGrid.ColumnResizeMode = GridColumnResizeMode.ColumnsContainer;
+            LinkedGrid.EndUpdate();
+        }
+    }
+
+    async Task OnItemClick(ToolbarItemClickEventArgs e) {
+        if (LinkedGrid == null) { return; }
+        LinkedGrid.BeginUpdate();
+        switch (e.ItemName) {
+            case "Day":
+                foreach (var col in LinkedGrid.GetColumns()) {
+                    if (col is DxGridDataColumn) {
+                        var c = (DxGridDataColumn)col;
+                        if (c.FieldName.ToLower().Contains("date")) c.GroupInterval = GridColumnGroupInterval.Date;
+                    }
+                }
+                break;
+            case "Month":
+                foreach (var col in LinkedGrid.GetColumns()) {
+                    if (col is DxGridDataColumn) {
+                        var c = (DxGridDataColumn)col;
+                        if (c.FieldName.ToLower().Contains("date")) c.GroupInterval = GridColumnGroupInterval.DateMonth;
+                    }
+                }
+                break;
+            case "Year":
+                foreach (var col in LinkedGrid.GetColumns()) {
+                    if (col is DxGridDataColumn) {
+                        var c = (DxGridDataColumn)col;
+                        if (c.FieldName.ToLower().Contains("date")) c.GroupInterval = GridColumnGroupInterval.DateYear;
+                    }
+                }
+                break;
+            case "ExpandGroups":
+                LinkedGrid.ExpandAllGroupRows();
+                break;
+            case "CollapseGroups":
+                LinkedGrid.CollapseAllGroupRows();
+                break;
+            case "Choose":
+                LinkedGrid.ShowColumnChooser(".column-chooser-button");
+                break;
+            case "ExportAll":
+                await ExcelExport(false);
+                break;
+            case "ExportSelected":
+                await ExcelExport(true);
+                break;
+            case "Filter":
+                LinkedGrid.ShowFilterRow = LinkedGrid.ShowFilterRow ? false : true;
+                break;
+        }
+        LinkedGrid.EndUpdate();
+        StateHasChanged();
+    }
+
+    async Task ExcelExport(bool SelectedRowsOnly) {
+        foreach (var col in LinkedGrid.GetDataColumns()) {
+            col.ExportEnabled = col.Visible;
+            if (col.GroupIndex >= 0) col.ExportEnabled = true;
+        }
+        var options = new GridXlExportOptions() {
+                CustomizeSheet = e => {
+                    e.Sheet.PageSetup.PaperKind = System.Drawing.Printing.PaperKind.A4;
+                    // Enable auto filter for columns with data
+                    var positionStart = new DevExpress.Export.Xl.XlCellPosition(0, 0);
+                    var count = 0;
+                    foreach (var col in LinkedGrid.GetDataColumns()) {
+                        if (col.ExportEnabled && col.GroupIndex < 0) count++;
+                    }
+                    var positionEnd = new DevExpress.Export.Xl.XlCellPosition(count - 1, 0);
+                    e.Sheet.AutoFilterRange = new DevExpress.Export.Xl.XlCellRange(positionStart, positionEnd);
+                    // Freeze the top row
+                    e.Sheet.SplitPosition = new DevExpress.Export.Xl.XlCellPosition(0, 1);
+                },
+                CustomizeCell = e => {
+                    // Highlight header and footer
+                    if (e.AreaType == SheetAreaType.Header || e.AreaType == SheetAreaType.TotalFooter) {
+                        e.Formatting.BackColor = System.Drawing.Color.Gainsboro;
+                        e.Handled = true;
+                    }
+                    // Highlight Group Footer
+                    if (e.AreaType == SheetAreaType.GroupFooter) {
+                        e.Formatting.BackColor = ChangeColorBrightness(Color.Gainsboro, 0.6F);
+                        e.Handled = true;
+                    }
+                }
+            };
+        options.ExportSelectedRowsOnly = SelectedRowsOnly;
+        await LinkedGrid.ExportToXlsxAsync("gridExport.Xlsx", options);
+    }
+
+    /// <summary>
+    /// Creates color with corrected brightness.
+    /// </summary>
+    /// <param name="color">Color to correct.</param>
+    /// <param name="correctionFactor">The brightness correction factor. Must be between -1 and 1.
+    /// Negative values produce darker colors.</param>
+    /// <returns>
+    /// Corrected <see cref="Color"/> structure.
+    /// </returns>
+    Color ChangeColorBrightness(Color color, float correctionFactor) {
+        float red = (float)color.R;
+        float green = (float)color.G;
+        float blue = (float)color.B;
+
+        if (correctionFactor < 0) {
+            correctionFactor = 1 + correctionFactor;
+            red *= correctionFactor;
+            green *= correctionFactor;
+            blue *= correctionFactor;
+        }
+        else {
+            red = (255 - red) * correctionFactor + red;
+            green = (255 - green) * correctionFactor + green;
+            blue = (255 - blue) * correctionFactor + blue;
+        }
+
+        return Color.FromArgb(color.A, (int)red, (int)green, (int)blue);
+    }
+
+}

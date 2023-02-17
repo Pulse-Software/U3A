@@ -1,0 +1,273 @@
+﻿@page "/FinancialStatusEnquiry"
+
+@using System.Diagnostics
+@using Microsoft.AspNetCore.Hosting
+@using DevExpress.Data.Filtering
+
+@inject NavigationManager NavMan
+@inject IJSRuntime js
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@inject IWebHostEnvironment environment
+
+@implements IDisposable
+
+@attribute [Authorize]
+
+<form autocomplete="off">
+    @if (!IsReady) {
+        <p><em>Loading...</em></p>
+    }
+    else {
+
+        <DxFormLayout CssClass="m-2">
+            <div class="col-12">
+                <h3>Financial Status Enquiry</h3>
+            </div>
+            <DxFormLayoutGroup Caption="Enquiry Parameters">
+                <DxFormLayoutItem Caption="Enrolment Term" ColSpanMd="4">
+                    <DxComboBox Data="@terms" NullText="Select the Term required..."
+                            FilteringMode="DataGridFilteringMode.Contains"
+                            TextFieldName="@nameof(Term.TermSummary)"
+                            @bind-Value="@selectedTerm" />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Balance Type" ColSpanMd="3">
+                    <DxComboBox Data="@BalanceTypes" NullText="All Account Balances"
+                            ClearButtonDisplayMode="DataEditorClearButtonDisplayMode.Auto"
+                            @bind-Value="@balanceType" />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Financial To" ColSpanMd="3">
+                    <DxTagBox Data="@FinancialYears" NullText="Ignore Financial To"
+                          ClearButtonDisplayMode="DataEditorClearButtonDisplayMode.Auto"
+                          @bind-Values="@selectedFinancialYears" />
+                </DxFormLayoutItem>
+            <DxButton Text="Process" RenderStyle=ButtonRenderStyle.Primary CssClass="col-12 col-md-1 mt-2" Click="@OnProcess" />
+            </DxFormLayoutGroup>
+
+        </DxFormLayout>
+
+
+        <MessageBox @ref="@messageBox" />
+        <Progress @ref="@ProgressBar" />
+        <ErrorPopup @ref="@ErrorPopup" PopupHeader="@ErrorHeader" PopupMessage="@ErrorMessage" />
+
+        <GridToolbar @ref="Toolbar" LinkedGrid=@mainGrid />
+        <DxGrid Data="@Persons" @ref=@mainGrid CssClass="grid-height"
+            ColumnResizeMode="GridColumnResizeMode.ColumnsContainer"
+            CustomizeSummaryDisplayText="Grid_CustomizeSummaryDisplayText"
+            CustomizeGroupValueDisplayText="Grid_CustomizeGroupValueDisplayText"
+            GroupFooterDisplayMode="GridGroupFooterDisplayMode.Always"
+            AllowSelectRowByClick="false"
+            ShowFilterRow="false"
+            ShowAllRows="false"
+            ValidationEnabled="true"
+            PageSize="30"
+            PageSizeSelectorVisible="true"
+            PageSizeSelectorItems="@(new int[] {10,15, 20,30, 40,60,80, 100, 200,400 })"
+            PageSizeSelectorAllRowsItemVisible="true"
+            PagerSwitchToInputBoxButtonCount="10"
+            PagerVisibleNumericButtonCount="10"
+            PagerVisible="true">
+            <Columns>
+                <DxGridDataColumn Caption="Last Name" FieldName="LastName" Width="8rem" />
+                <DxGridDataColumn Caption="First Name" FieldName="FirstName" Width="8rem" />
+                <DxGridDataColumn Caption="Email" FieldName="Email" Width="12rem" Visible="false" />
+                <DxGridDataColumn Caption="Mobile" FieldName="Mobile" Width="5rem" Visible="false" />
+                <DxGridDataColumn Caption="Home" FieldName="HomePhone" Width="5rem" Visible="false" />
+                <DxGridDataColumn Caption="Joined" FieldName="DateJoined" DisplayFormat="dd-MMM-yy" Width="5rem" />
+                <DxGridDataColumn Caption="Is Leader?" FieldName="IsCourseLeader" Visible="@true" Width="7rem">
+                    <CellDisplayTemplate>
+                        <DxCheckBox Enabled="false" Checked="(bool)context.Value" Alignment="CheckBoxContentAlignment.Center" />
+                    </CellDisplayTemplate>
+                    <FilterRowCellTemplate>
+                        <DxCheckBox Checked="(bool?)context.FilterRowValue"
+                                CheckedChanged="(bool? v) => context.FilterRowValue = v"
+                                AllowIndeterminateStateByClick="true"
+                                Alignment="CheckBoxContentAlignment.Center" />
+                    </FilterRowCellTemplate>
+                </DxGridDataColumn>
+                <DxGridDataColumn Caption="Is Life Member?" FieldName="IsLifeMember" Visible="@true" Width="7rem">
+                    <CellDisplayTemplate>
+                        <DxCheckBox Enabled="false" Checked="(bool)context.Value" Alignment="CheckBoxContentAlignment.Center" />
+                    </CellDisplayTemplate>
+                    <FilterRowCellTemplate>
+                        <DxCheckBox Checked="(bool?)context.FilterRowValue"
+                                CheckedChanged="(bool? v) => context.FilterRowValue = v"
+                                AllowIndeterminateStateByClick="true"
+                                Alignment="CheckBoxContentAlignment.Center" />
+                    </FilterRowCellTemplate>
+                </DxGridDataColumn>
+                <DxGridDataColumn Caption="Is Complimentary?" FieldName="IsComplimentary" Visible="@true" Width="7rem">
+                    <CellDisplayTemplate>
+                        <DxCheckBox Enabled="false" Checked="(bool)context.Value" Alignment="CheckBoxContentAlignment.Center" />
+                    </CellDisplayTemplate>
+                    <FilterRowCellTemplate>
+                        <DxCheckBox Checked="(bool?)context.FilterRowValue"
+                                CheckedChanged="(bool? v) => context.FilterRowValue = v"
+                                AllowIndeterminateStateByClick="true"
+                                Alignment="CheckBoxContentAlignment.Center" />
+                    </FilterRowCellTemplate>
+                </DxGridDataColumn>
+                <DxGridDataColumn Caption="Active Enrolments" FieldName="Enrolments" DisplayFormat="N0" Width="5rem" />
+                <DxGridDataColumn Caption="W/Listed Enrolments" FieldName="Waitlisted" DisplayFormat="N0" Width="5rem" />
+                <DxGridDataColumn Caption="Last Receipt" FieldName="LastReceipt" DisplayFormat="dd-MMM-yy" Width="5rem" />
+                <DxGridDataColumn Caption="Membership" FieldName="MembershipFees" DisplayFormat="c2" Width="5rem" />
+                <DxGridDataColumn Caption="Postal" FieldName="MailSurcharge" DisplayFormat="c2" Width="5rem" />
+                <DxGridDataColumn Caption="Course/Year" FieldName="CourseFeesPerYear" DisplayFormat="c2" Width="5rem" />
+                <DxGridDataColumn Caption="Course/Term" FieldName="CourseFeesPerTerm" DisplayFormat="c2" Width="5rem" />
+                <DxGridDataColumn Caption="Received" FieldName="AmountReceived" DisplayFormat="c2" Width="5rem" />
+                <DxGridDataColumn Caption="Total" FieldName="TotalFees" DisplayFormat="c2" Width="5rem" />
+                <DxGridDataColumn Caption="Fin-To" FieldName="FinancialTo" DisplayFormat="F0" />
+            </Columns>
+            <GroupSummary>
+                <DxGridSummaryItem SummaryType="GridSummaryItemType.Count" FieldName="LastName" FooterColumnName="LastName" />
+                <DxGridSummaryItem SummaryType="GridSummaryItemType.Sum" FieldName="Waitlisted" FooterColumnName="Waitlisted" />
+                <DxGridSummaryItem SummaryType="GridSummaryItemType.Sum" FieldName="Enrolments" FooterColumnName="Enrolments" />
+                <DxGridSummaryItem SummaryType="GridSummaryItemType.Sum" FieldName="MembershipFees" FooterColumnName="MembershipFees" />
+                <DxGridSummaryItem SummaryType="GridSummaryItemType.Sum" FieldName="MailSurcharge" FooterColumnName="MailSurcharge" />
+                <DxGridSummaryItem SummaryType="GridSummaryItemType.Sum" FieldName="CourseFeesPerYear" FooterColumnName="CourseFeesPerYear" />
+                <DxGridSummaryItem SummaryType="GridSummaryItemType.Sum" FieldName="CourseFeesPerTerm" FooterColumnName="CourseFeesPerTerm" />
+                <DxGridSummaryItem SummaryType="GridSummaryItemType.Sum" FieldName="AmountReceived" FooterColumnName="AmountReceived" />
+                <DxGridSummaryItem SummaryType="GridSummaryItemType.Sum" FieldName="TotalFees" FooterColumnName="TotalFees" />
+            </GroupSummary>
+            <TotalSummary>
+                <DxGridSummaryItem SummaryType="GridSummaryItemType.Count" FieldName="LastName" />
+                <DxGridSummaryItem SummaryType="GridSummaryItemType.Sum" FieldName="Waitlisted" />
+                <DxGridSummaryItem SummaryType="GridSummaryItemType.Sum" FieldName="Enrolments" />
+                <DxGridSummaryItem SummaryType="GridSummaryItemType.Sum" FieldName="MembershipFees" />
+                <DxGridSummaryItem SummaryType="GridSummaryItemType.Sum" FieldName="MailSurcharge" />
+                <DxGridSummaryItem SummaryType="GridSummaryItemType.Sum" FieldName="CourseFeesPerYear" />
+                <DxGridSummaryItem SummaryType="GridSummaryItemType.Sum" FieldName="CourseFeesPerTerm" />
+                <DxGridSummaryItem SummaryType="GridSummaryItemType.Sum" FieldName="AmountReceived" />
+                <DxGridSummaryItem SummaryType="GridSummaryItemType.Sum" FieldName="TotalFees" />
+            </TotalSummary>
+        </DxGrid>
+    }
+</form>
+
+<style>
+    .grid-height {
+        height: 70vh;
+    }
+
+</style>
+
+
+@code {
+    bool IsReady;
+    Term? currentTerm;
+
+    List<PersonFinancialStatus>? Persons { get; set; }
+    List<Person>? people { get; set; }
+    List<Term>? terms { get; set; }
+    Term? selectedTerm { get; set; }
+    Term? lastTerm;
+    List<int> FinancialYears;
+    IEnumerable<int>? selectedFinancialYears;
+    string[] BalanceTypes = { "Debit Balance (Money Owing)", "Credit Balance (Refund Due)", "Non-Zero Balance" };
+    string balanceType;
+
+    IGrid? mainGrid { get; set; }
+    ErrorPopup? ErrorPopup { get; set; }
+    GridToolbar? Toolbar;
+    Progress? ProgressBar;
+    string ErrorHeader;
+    string ErrorMessage;
+    U3ADbContext? dbc { get; set; }
+
+    MessageBox? messageBox { get; set; }
+
+
+    protected override async Task OnInitializedAsync() {
+        // wire up the data
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+        terms = await BusinessRule.SelectableRelaxedTermsAsync(dbc);
+        selectedTerm = await BusinessRule.CurrentTermAsync(dbc);
+        people = await BusinessRule.SelectablePersonsIncludeUnfinancialAsync(dbc);
+        FinancialYears = new List<int>();
+        FinancialYears.AddRange(people
+                                .OrderByDescending(x => x.FinancialTo)
+                                .Select(x => x.FinancialTo).Distinct());
+        IsReady = true;
+    }
+
+
+    protected override async void OnAfterRender(bool firstRender) {
+        // wire up the toolbar
+        base.OnAfterRender(firstRender);
+        if (Toolbar != null && mainGrid != null) { Toolbar.LinkedGrid = mainGrid; }
+        if (!firstRender) {
+            if (selectedTerm == null) {
+                await messageBox.ShowOkOnlyAsync("Current Term is undefined", "Use <strong>Add/Edit Enrolment Terms</strong> to set the current term.");
+                NavMan.NavigateTo("/");
+            }
+        }
+    }
+
+    async Task OnProcess() {
+        if (selectedTerm == null || selectedTerm != lastTerm) {
+            await ProgressBar.ShowAsync("Processing Status .. Please Wait", people.Count);
+            var service = new MemberFeeCalculationService();
+            Persons = new List<PersonFinancialStatus>();
+            var i = 0;
+            foreach (var p in people) {
+                await service.CalculateFeeAsync(dbc, p, selectedTerm);
+                Persons.Add(service.PersonWithFinancialStatus);
+                await ProgressBar.SetValueAsync(i++);
+            }
+            await ProgressBar.Close();
+            lastTerm = selectedTerm;
+        }
+        mainGrid.ClearFilter();
+        CriteriaOperator? opFees = CriteriaOperator.FromLambda<PersonFinancialStatus>(x => x.TotalFees >= decimal.MinValue && x.TotalFees <= decimal.MaxValue);
+        CriteriaOperator? opFinToYears = CriteriaOperator.FromLambda<PersonFinancialStatus>(x => x.FinancialTo >= int.MinValue && x.FinancialTo <= int.MaxValue); ;
+        if (balanceType != null) {
+            if (balanceType.StartsWith("Debit")) {
+                opFees = CriteriaOperator.FromLambda<PersonFinancialStatus>(x => x.TotalFees > 0);
+            }
+            else {
+                if (balanceType.StartsWith("Credit")) {
+                    opFees = CriteriaOperator.FromLambda<PersonFinancialStatus>(x => x.TotalFees < 0);
+                }
+                else opFees = CriteriaOperator.FromLambda<PersonFinancialStatus>(x => x.TotalFees != 0);
+            }
+        }
+        if (selectedFinancialYears?.Count() > 0) {
+            opFinToYears = CriteriaOperator.FromLambda<PersonFinancialStatus>(x => selectedFinancialYears.Contains(x.FinancialTo));
+        }
+        var op = GroupOperator.And(opFees, opFinToYears);
+        mainGrid.SetFilterCriteria(op);
+    }
+
+    void Grid_CustomizeSummaryDisplayText(GridCustomizeSummaryDisplayTextEventArgs e) {
+        string[] moneys = { "MembershipFees",
+                            "MailSurcharge",
+                            "CourseFeesPerYear",
+                            "CourseFeesPerTerm",
+                            "AmountReceived",
+                            "TotalFees"};
+        if (e.Item.FieldName == "LastName") e.DisplayText = string.Format("Total: {0:N0}", e.Value);
+        if (e.Item.FieldName == "Waitlisted") e.DisplayText = string.Format("{0:N0}", e.Value);
+        if (e.Item.FieldName == "Enrolments") e.DisplayText = string.Format("{0:N0}", e.Value);
+        if (moneys.Contains(e.Item.FieldName))
+            e.DisplayText = string.Format("{0:c2}", e.Value);
+    }
+
+    void Grid_CustomizeGroupValueDisplayText(GridCustomizeGroupValueDisplayTextEventArgs e) {
+        string[] moneys = { "MembershipFees",
+                            "MailSurcharge",
+                            "CourseFeesPerYear",
+                            "CourseFeesPerTerm",
+                            "AmountReceived",
+                            "SubTotalFees"};
+        if (e.FieldName == "LastName") e.DisplayText = string.Format("Total: {0:N0}", e.Value);
+        if (e.FieldName == "Waitlisted") e.DisplayText = string.Format("{0:N0}", e.Value);
+        if (e.FieldName == "Enrolments") e.DisplayText = string.Format("{0:N0}", e.Value);
+        if (moneys.Contains(e.FieldName))
+            e.DisplayText = string.Format("{0:c2}", e.Value);
+    }
+
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+
+}

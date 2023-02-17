@@ -1,0 +1,204 @@
+﻿<DxGrid @ref="@grid" Data="@Course.Classes"
+        ColumnResizeMode="GridColumnResizeMode.ColumnsContainer"
+        ShowAllRows="true"
+        KeyFieldName="ID"
+        ValidationEnabled="true"
+        PopupEditFormCssClass="classPopup-width"
+        PopupEditFormHeaderText="Add/Edit Class"
+        CustomizeEditModel="Grid_CustomizeEditModel"
+        EditModelSaving="Grid_EditModelSaving"
+        DataItemDeleting="Grid_DataItemDeleting"
+        EditMode="GridEditMode.PopupEditForm">
+    <Columns>
+        <DxGridDataColumn Caption="Offered" FieldName="OfferedSummary" Width="6rem" />
+        <DxGridDataColumn Caption="Venue" FieldName="Venue.Name" />
+        <DxGridDataColumn Caption="Occurs" FieldName="OccurrenceText" Visible="@(!AllowEdit)" />
+        <DxGridDataColumn Caption="Occurs" FieldName="Occurrence.ShortName" Width="5rem" Visible="@AllowEdit" />
+        <DxGridDataColumn Caption="On Day" FieldName="OnDay.ShortDay" Width="4rem" Visible="@AllowEdit" />
+        <DxGridDataColumn Caption="Start" FieldName="StartTime" DisplayFormat="t" Width="5rem" />
+        <DxGridDataColumn Caption="Finish"
+                          FieldName="StrEndTime" DisplayFormat="t" Width="5rem" Visible="@(!AllowEdit)" />
+        <DxGridDataColumn Caption="Leader" FieldName="Leader.FullName" Width="10rem" Visible="@AllowEdit" />
+        <DxGridDataColumn Caption="Leader" FieldName="LeaderSummary" Visible="@(!AllowEdit)" Width="40rem" />
+        <DxGridCommandColumnEx EditButtonVisible="true"
+                             NewButtonVisible="true"
+                             DeleteButtonVisible="true" Visible="@AllowEdit" Width="8rem" />
+    </Columns>
+    <EditFormTemplate Context="ClassContext">
+        @{
+            var editItem = (Class)ClassContext.EditModel;
+        }
+        <DxFormLayout>
+            <DxFormLayoutItem ColSpanMd="12">
+                <ValidationSummary />
+            </DxFormLayoutItem>
+            <DxFormLayoutItem Caption="Offered:" ColSpanMd="3" />
+            <DxFormLayoutItem Caption="Term-1" ColSpanMd="2">
+                <DxCheckBox @bind-Checked="editItem.OfferedTerm1" />
+            </DxFormLayoutItem>
+            <DxFormLayoutItem Caption="Term-2" ColSpanMd="2">
+                <DxCheckBox @bind-Checked="editItem.OfferedTerm2" />
+            </DxFormLayoutItem>
+            <DxFormLayoutItem Caption="Term-3" ColSpanMd="2">
+                <DxCheckBox @bind-Checked="editItem.OfferedTerm3" />
+            </DxFormLayoutItem>
+            <DxFormLayoutItem Caption="Term-4" ColSpanMd="2">
+                <DxCheckBox @bind-Checked="editItem.OfferedTerm4" />
+            </DxFormLayoutItem>
+            <DxFormLayoutItem Caption="Leader 1" ColSpanMd="12">
+                <DxComboBox Data="Persons" NullText="The Group"
+                            ListRenderMode="ListRenderMode.Virtual"
+                            FilteringMode="DataGridFilteringMode.Contains"
+                            ClearButtonDisplayMode="DataEditorClearButtonDisplayMode.Auto"
+                            @bind-Value="editItem.Leader"
+                            TextFieldName="@nameof(Person.PersonSummary)">
+                </DxComboBox>
+            </DxFormLayoutItem>
+            <DxFormLayoutItem Caption="Leader 2" ColSpanMd="12">
+                <DxComboBox Data="Persons"
+                            ListRenderMode="ListRenderMode.Virtual"
+                            FilteringMode="DataGridFilteringMode.Contains"
+                            ClearButtonDisplayMode="DataEditorClearButtonDisplayMode.Auto"
+                            @bind-Value="editItem.Leader2"
+                            TextFieldName="@nameof(Person.PersonSummary)">
+                </DxComboBox>
+            </DxFormLayoutItem>
+            <DxFormLayoutItem Caption="Leader 3" ColSpanMd="12">
+                <DxComboBox Data="Persons"
+                            ListRenderMode="ListRenderMode.Virtual"
+                            FilteringMode="DataGridFilteringMode.Contains"
+                            ClearButtonDisplayMode="DataEditorClearButtonDisplayMode.Auto"
+                            @bind-Value="editItem.Leader3"
+                            TextFieldName="@nameof(Person.PersonSummary)">
+                </DxComboBox>
+            </DxFormLayoutItem>
+            <DxFormLayoutItem Caption="Venue" ColSpanMd="12">
+                <DxComboBox Data="Venues"
+                            FilteringMode="DataGridFilteringMode.Contains"
+                            @bind-Value="editItem.Venue"
+                            TextFieldName="@nameof(Venue.Name)">
+                </DxComboBox>
+            </DxFormLayoutItem>
+            <DxFormLayoutItem Caption="Start Date" ColSpanMd="12">
+                <DxDateEdit T="DateTime?" Date="@editItem.StartDate" DateExpression="@(() => editItem.StartDate)"
+                            ClearButtonDisplayMode="DataEditorClearButtonDisplayMode.Auto"
+                            NullText="Start Date of class. Only if not the Start of Term"
+                            DateChanged="@((DateTime? newValue) => OnStartDateChanged(newValue, editItem))" />
+            </DxFormLayoutItem>
+            <DxFormLayoutItem Caption="Recurrence" ColSpanMd="12">
+                <DxSpinEdit @bind-Value="editItem.Recurrence" MinValue="1" MaxValue="52"
+                            ClearButtonDisplayMode="DataEditorClearButtonDisplayMode.Auto"
+                            NullText="The number of times the class recurs. Only if not End of Term." />
+            </DxFormLayoutItem>
+            <DxFormLayoutItem Caption="Occurrence" ColSpanMd="12">
+                <DxComboBox Data="occurrence"
+                            @bind-Value="editItem.Occurrence"
+                            TextFieldName="@nameof(Occurrence.Name)">
+                </DxComboBox>
+            </DxFormLayoutItem>
+            <DxFormLayoutItem Caption="On Day" ColSpanMd="12">
+                <DxComboBox Data="WeekDays"
+                            FilteringMode="DataGridFilteringMode.Contains"
+                            @bind-Value="editItem.OnDay"
+                            TextFieldName="@nameof(WeekDay.Day)" ReadOnly="@IsOnDayReadOnly">
+                </DxComboBox>
+            </DxFormLayoutItem>
+            <DxFormLayoutItem Caption="Start Time" ColSpanMd="12">
+                <DxTimeEdit DisplayFormat="t" @bind-Time="editItem.StartTime" />
+            </DxFormLayoutItem>
+
+        </DxFormLayout>
+    </EditFormTemplate>
+
+</DxGrid>
+
+<style>
+    .classPopup-width {
+        min-width: 40rem;
+    }
+
+</style>
+
+@code {
+
+    [Parameter]
+    public Course? Course { get; set; }
+    [Parameter]
+    public IEnumerable<Venue>? Venues { get; set; }
+    [Parameter]
+    public IEnumerable<Person>? Persons { get; set; }
+    [Parameter]
+    public IEnumerable<WeekDay>? WeekDays { get; set; }
+    [Parameter]
+    public bool AllowEdit { get; set; } = false;
+    [Parameter]
+    public U3ADbContext? DbContext { get; set; }
+
+    List<Occurrence>? occurrence { get; set; }
+
+    public IGrid? grid { get; set; }
+
+    bool IsOnDayReadOnly;
+
+    protected override void OnInitialized() {
+        base.OnInitialized();
+        if (DbContext != null) occurrence = DbContext.Occurrence.ToList();
+    }
+
+    async Task Grid_CustomizeEditModel(GridCustomizeEditModelEventArgs e) {
+        if (e.IsNew) {
+            var editModel = (Class)e.EditModel;
+            editModel.Occurrence = DbContext.Occurrence.Find((int)OccurrenceType.Weekly);
+        }
+    }
+
+
+    async Task Grid_EditModelSaving(GridEditModelSavingEventArgs e) {
+        var editModel = (Class)e.EditModel;
+        // Re-query a data item from the store.
+        var dataItem = e.IsNew ? new Class() : DbContext?.Class.Find(editModel.ID);
+        // Assign changes from the edit model to the data item.
+        if (dataItem != null) {
+            editModel.CopyTo(dataItem);
+            dataItem.Venue = DbContext.Venue.Find(editModel.Venue.ID);
+            if (editModel.StartDate.HasValue) {
+                dataItem.OnDay = DbContext.WeekDay.Find((int)editModel.StartDate.Value.DayOfWeek);
+            }
+            else {
+                dataItem.OnDay = DbContext.WeekDay.Find(editModel.OnDay.ID);
+            }
+            dataItem.Occurrence = DbContext.Occurrence.Find(editModel.Occurrence.ID);
+            if (editModel.Leader != null) { dataItem.Leader = DbContext.Person.Find(editModel.Leader.ID); }
+            if (editModel.Leader2 != null) { dataItem.Leader2 = DbContext.Person.Find(editModel.Leader2.ID); }
+            if (editModel.Leader3 != null) { dataItem.Leader3 = DbContext.Person.Find(editModel.Leader3.ID); }
+            var t = dataItem.StartTime;
+            dataItem.StartTime = new DateTime(1, 1, 1, t.Hour, t.Minute, 0);
+            // Post changes to the database.
+            if (e.IsNew) await DbContext.AddAsync(dataItem);
+            if (e.IsNew) {
+                Course.Classes.Insert(0, dataItem);
+            }
+            else {
+                int idx = Course.Classes.FindIndex(x => x.ID == dataItem.ID);
+                Course.Classes[idx] = dataItem;
+            }
+        }
+    }
+
+    async Task Grid_DataItemDeleting(GridDataItemDeletingEventArgs e) {
+        Class classToDelete = (Class)e.DataItem;
+        await BusinessRule.DeleteEnrolmentByClassID(DbContext, classToDelete.ID);
+        DbContext.Remove<Class>(classToDelete);
+        await DbContext.SaveChangesAsync();
+        grid.ClearSelection();
+    }
+
+    void OnStartDateChanged(DateTime? newStartDate, Class editItem) {
+        editItem.StartDate = newStartDate;
+        if (newStartDate.HasValue) {
+            editItem.OnDay = DbContext.WeekDay.Find((int)newStartDate.Value.DayOfWeek);
+        }
+        IsOnDayReadOnly = newStartDate.HasValue;
+    }
+ }
+

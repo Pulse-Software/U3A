@@ -1,0 +1,45 @@
+﻿@inherits DxGridCommandColumn
+@base.BuildRenderTree
+
+
+@code {
+    [CascadingParameter] 
+    public IGrid MyGrid { get; set; }
+
+    protected override bool ShouldRender() => false;
+
+    protected override void OnInitialized() {
+        base.OnInitialized();
+        Width = (EditButtonVisible && DeleteButtonVisible) ? "5rem" : "2rem";
+        if (NewButtonVisible) {
+            HeaderTemplate = context => 
+          @<DxButton RenderStyle="ButtonRenderStyle.Primary"
+          RenderStyleMode="ButtonRenderStyleMode.Outline" title="Add new record"
+          IconCssClass="fs-5 bi bi-plus" Click="async () => MyGrid.StartEditNewRowAsync()" />;
+        };
+        CellDisplayTemplate = context =>
+    @<text>
+        @if (EditButtonVisible) {
+            <DxButton RenderStyle="ButtonRenderStyle.Warning"
+              RenderStyleMode="ButtonRenderStyleMode.Outline" title="Edit this record"
+              IconCssClass="fs-5 bi bi-pencil" Click="async () => MyGrid.StartEditDataItemAsync(context.DataItem)" />
+        }
+        @if (DeleteButtonVisible) {
+            <DxButton RenderStyle="ButtonRenderStyle.Danger" title="Delete this record"
+              RenderStyleMode="ButtonRenderStyleMode.Outline"
+              IconCssClass="fs-5 bi bi-trash" Click="() => MyGrid.ShowDataItemDeleteConfirmation(context.DataItem)" />
+        }
+    </text>
+        ;
+        CellEditTemplate = context =>
+    @<text>
+        <DxButton RenderStyle="ButtonRenderStyle.Success"
+              RenderStyleMode="ButtonRenderStyleMode.Outline" title="Save your changes"
+              IconCssClass="fs-5 bi bi-hdd" Click="async () => MyGrid.SaveChangesAsync()" />
+        <DxButton RenderStyle="ButtonRenderStyle.Danger" title="Cancel your changes"
+              RenderStyleMode="ButtonRenderStyleMode.Outline"
+              IconCssClass="fs-5 bi bi-arrow-counterclockwise" Click="() => MyGrid.CancelEditAsync()" />
+    </text>
+    ;
+    }
+}

@@ -1,0 +1,11 @@
+﻿
+update-database -cont U3ADbContextSeed -project U3A.Database  -args U3A_Dropout
+
+remove-migration -cont U3ADbContextSeed -project U3A.Database -args U3A_DropoutDeletedBy
+
+add-migration -context U3ADbContextSeed -project U3A.Database U3A_DropoutDeletedBy
+
+update-database -cont U3ADbContextSeed -project U3A.Database
+
+script-migration -cont U3ADbContextSeed -project U3A.Database -idempotent -Output migration.sql
+

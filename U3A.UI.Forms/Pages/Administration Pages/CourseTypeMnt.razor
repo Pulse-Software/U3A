@@ -1,0 +1,153 @@
+﻿@page "/CourseTypeMnt"
+
+@inject IJSRuntime js
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@implements IDisposable
+
+
+@attribute [Authorize]
+
+@if (!IsReady) {
+    <p><em>Loading...</em></p>
+}
+else {
+
+    <div class="row">
+        <h3>Course Types</h3>
+    </div>
+    <div class="row">
+        <div class="col-11 d-none d-md-inline">
+            Course Types are used group or classify courses and/or activities offered to students.
+        </div>
+
+    </div>
+    <br />
+
+    <MessageBox @ref="@messageBox" />
+
+    <ErrorPopup @ref="@ErrorPopup" PopupHeader="@ErrorHeader" PopupMessage="@ErrorMessage" />
+
+    <GridToolbar @ref="Toolbar" LinkedGrid=@mainGrid />
+
+    <DxGrid Data="@CourseTypes" @ref=@mainGrid CssClass="h-75"
+        ColumnResizeMode="GridColumnResizeMode.ColumnsContainer"
+        ShowFilterRow="false"
+        ShowAllRows="true"
+        KeyFieldName="ID"
+        ValidationEnabled="true"
+        SelectionMode="GridSelectionMode.Multiple"
+        EditMode="GridEditMode.PopupEditForm"
+        EditModelSaving="Grid_EditModelSaving">
+        <Columns>
+            <DxGridCommandColumnEx @ref="GridCommandColumn" Width="60px" EditButtonVisible="true" DeleteButtonVisible="false" />
+            <DxGridDataColumn Width="6rem" Caption="Discontinued" FieldName="Discontinued">
+                <CellDisplayTemplate>
+                    <DxCheckBox Enabled="false" Checked="(bool)context.Value" />
+                </CellDisplayTemplate>
+                <FilterRowCellTemplate>
+                    <DxCheckBox Checked="(bool?)context.FilterRowValue"
+                            CheckedChanged="(bool? v) => context.FilterRowValue = v"
+                            AllowIndeterminateStateByClick="true"
+                            Alignment="CheckBoxContentAlignment.Center" />
+                </FilterRowCellTemplate>
+            </DxGridDataColumn>
+            <DxGridDataColumn Width="25rem" Caption="Name" FieldName="Name" />
+            <DxGridDataColumn Caption="Comment" FieldName="Comment" />
+        </Columns>
+
+        <EditFormTemplate Context="EditFormContext">
+            @{
+                var editItem = (CourseType)EditFormContext.EditModel;
+            }
+            <DxFormLayout>
+                <DxFormLayoutItem ColSpanMd="12">
+                    <ValidationSummary />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Course Type" ColSpanMd="12">
+                    <DxTextBox @bind-Text="@editItem.Name" />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Comment" ColSpanMd="12">
+                    <DxMemo @bind-Text="@editItem.Comment" Rows="5" />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Discontinued">
+                    <DxCheckBox @bind-Checked="@editItem.Discontinued" />
+                </DxFormLayoutItem>
+            </DxFormLayout>
+        </EditFormTemplate>
+    </DxGrid>
+
+
+}
+
+@code {
+    bool IsReady;
+    private List<CourseType> CourseTypes { get; set; }
+    private DxGridCommandColumnEx? GridCommandColumn;
+    MessageBox? messageBox;
+
+    internal IGrid? mainGrid { get; set; }
+    internal ErrorPopup? ErrorPopup { get; set; }
+    internal GridToolbar? Toolbar;
+    internal string ErrorHeader;
+    internal string ErrorMessage;
+    U3ADbContext dbc { get; set; }
+
+    protected override async Task OnInitializedAsync() {
+        // wire up the data
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+        CourseTypes = await BusinessRule.EditableCourseTypesAsync(dbc);
+        IsReady = true;
+    }
+
+    protected override void OnAfterRender(bool firstRender) {
+        // wire up the toolbar
+        base.OnAfterRender(firstRender);
+        if (Toolbar != null && mainGrid != null) { Toolbar.LinkedGrid = mainGrid; }
+    }
+
+    async Task Grid_EditModelSaving(GridEditModelSavingEventArgs e) {
+        var editModel = (CourseType)e.EditModel;
+        if (!await IsDataOk(editModel)) { e.Cancel = true; return; }
+        // Re-query a data item from the store.
+        var dataItem = e.IsNew ? new CourseType() : dbc.CourseType.Find(editModel.ID);
+        // Assign changes from the edit model to the data item.
+        if (dataItem != null) {
+            editModel.CopyTo(dataItem);
+            try {
+                // Post changes to the database.
+                if (e.IsNew) await dbc.AddAsync(dataItem);
+                await dbc.SaveChangesAsync();
+                // update the Grid.
+                if (e.IsNew) {
+                    CourseTypes.Insert(0, dataItem);
+                }
+                else {
+                    int idx = CourseTypes.FindIndex(x => x.ID == dataItem.ID);
+                    CourseTypes[idx] = dataItem;
+                }
+            }
+            catch (Exception ex) {
+                ErrorHeader = "Save to database error";
+                ErrorMessage = Helpers.GetErrorMessage(ex);
+                await ErrorPopup.ShowPopupAsync();
+                dbc?.ChangeTracker?.Clear();
+                e.Cancel = true;
+            }
+        }
+    }
+
+    async Task<bool> IsDataOk(CourseType editItem) {
+        bool result = true;
+        var dup = await BusinessRule.DuplicateMarkUpAsync(dbc, editItem);
+        if (!string.IsNullOrWhiteSpace(dup)) {
+            await messageBox.ShowOkOnlyAsync("Duplicate Record", dup);
+            result = false;
+        }
+        return result;
+    }
+
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+
+}

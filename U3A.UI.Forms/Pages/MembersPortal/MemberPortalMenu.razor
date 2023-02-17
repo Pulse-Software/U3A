@@ -1,0 +1,233 @@
+﻿@inherits LayoutComponentBase
+
+@layout BasicLayout
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@implements IDisposable
+@inject NavigationManager NavigationManager
+@inject SignInManager<IdentityUser> SignInMgr
+@inject IJSRuntime js
+
+@using Microsoft.AspNetCore.Identity
+
+@attribute [Authorize]
+
+
+@if (!IsReady) {
+    <p><em>Loading...</em></p>
+}
+else {
+
+    <DxLayoutBreakpoint MinWidth="1200"
+                    @bind-IsActive="@IsSmallLayout" />
+
+
+    <DxFormLayout class="mx-4 w-100">
+        <div class="col-12 col-lg-6 col-xl-4 mx-auto">
+            <div class="mt-1 py-1 py-lg-3 text-center alert alert-success col-12">@welcomeText</div>
+            <DxAccordion ExpandMode="AccordionExpandMode.Single" CssClass="col col-12"
+                     ExpandCollapseAction="AccordionExpandCollapseAction.HeaderClick">
+                <Items>
+                    <DxAccordionItem Text="Main Menu">
+                        <ContentTemplate>
+                            <DxButton Text="Select linked member"
+                                  Visible="@(loginState.LinkedPeople.Count > 1)"
+                                  IconCssClass="bi-people menu-icon me-3 h2"
+                                  CssClass="col-12 mt-1"
+                                  Click="@(e => OnMenuSelected(e,PortalMenuSelection.DoSelectLinkedMember))"
+                                  RenderStyle="ButtonRenderStyle.Primary"
+                                  RenderStyleMode="ButtonRenderStyleMode.Outline">
+                            </DxButton>
+                            <DxButton Text="Your membership details"
+                                  IconCssClass="bi-person menu-icon me-3 h2"
+                                  CssClass="col-12 mt-1"
+                                  Click="@(e => OnMenuSelected(e,PortalMenuSelection.DoMemberMaintenance))"
+                                  RenderStyle="ButtonRenderStyle.Primary"
+                                  RenderStyleMode="ButtonRenderStyleMode.Outline">
+                            </DxButton>
+                            <DxButton Text="Your membership fees"
+                                  IconCssClass="bi-coin menu-icon me-3 h2"
+                                  CssClass="col-12 mt-1"
+                                  Click="@(e => OnMenuSelected(e,PortalMenuSelection.DoMemberPayment))"
+                                  RenderStyle="ButtonRenderStyle.Primary"
+                                  RenderStyleMode="ButtonRenderStyleMode.Outline">
+                            </DxButton>
+                            <DxButton Text="View your course enrolments"
+                                  IconCssClass="bi-mortarboard menu-icon me-3 h2"
+                                  CssClass="col-12 mt-1"
+                                  Click="@(e => OnMenuSelected(e,PortalMenuSelection.DoViewMemberEnrolment))"
+                                  RenderStyle="ButtonRenderStyle.Primary"
+                                  RenderStyleMode="ButtonRenderStyleMode.Outline">
+                            </DxButton>
+                            <DxButton Text="Change your course enrolments"
+                                  IconCssClass="bi-mortarboard menu-icon me-3 h2"
+                                  CssClass="col-12 mt-1"
+                                  Click="@(e => OnMenuSelected(e,PortalMenuSelection.DoEditMemberEnrolment))"
+                                  RenderStyle="ButtonRenderStyle.Primary"
+                                  RenderStyleMode="ButtonRenderStyleMode.Outline">
+                            </DxButton>
+                            <DxButton Text="What's on today?'"
+                                  IconCssClass="bi-clock menu-icon me-3 h2"
+                                  CssClass="col-12 mt-1"
+                                  Click="@(e => OnMenuSelected(e,PortalMenuSelection.DoWhatsOn))"
+                                  RenderStyle="ButtonRenderStyle.Primary"
+                                  RenderStyleMode="ButtonRenderStyleMode.Outline">
+                            </DxButton>
+                            <DxButton Text="Your Leadership role"
+                                  IconCssClass="bi-person-video3 menu-icon me-3 h2"
+                                  CssClass="col-12 mt-1"
+                                  Click="@(e => OnMenuSelected(e,PortalMenuSelection.DoShowLeaderMenu))"
+                                  RenderStyle="ButtonRenderStyle.Primary"
+                                  RenderStyleMode="ButtonRenderStyleMode.Outline">
+                            </DxButton>
+                            @*                                <DxButton Text="Become a Leader"
+                        IconCssClass="bi-star menu-icon me-3 h2"
+                        CssClass="col-12 mt-1"
+                        Click="@(e => OnMenuSelected(e,PortalMenuSelection.NotImplemented))"
+                        RenderStyle="ButtonRenderStyle.Primary"
+                        RenderStyleMode="ButtonRenderStyleMode.Outline">
+                        </DxButton>
+                        *@
+                            @if (!loginState.IsAdminOnBehalfOfMember) {
+                                <DxButton Text="Logout, when you're finished"
+                                  IconCssClass="bi-door-closed menu-icon me-3 h2"
+                                  CssClass="col-12 my-1"
+                                  Click="@(OnLogout)"
+                                  RenderStyle="ButtonRenderStyle.Primary"
+                                  RenderStyleMode="ButtonRenderStyleMode.Outline">
+                                </DxButton>
+                            }
+                        </ContentTemplate>
+                    </DxAccordionItem>
+
+                    <DxAccordionItem Text="Linked Members">
+                        <ContentTemplate>
+                            <div class="text-center alert alert-info">
+                                <p>
+                                    A <strong>linked member</strong> is one who shares your email address.
+                                    It is mainly intended for your spouse or partner but might also
+                                    be used for friends without access to a digital device.
+                                </p>
+                                <p>When you link a member, you assume responsibilty for payment of fees and course enrolment for that member.</p>
+                                <p><strong>Please do not share your password</strong></p>
+                            </div>
+                            <DxButton Text="Link a new member"
+                                  IconCssClass="bi-person-plus menu-icon me-3 h2"
+                                  CssClass="col-12 mb-1"
+                                  Click="@(e => OnMenuSelected(e,PortalMenuSelection.DoLinkNewMember))"
+                                  RenderStyle="ButtonRenderStyle.Primary"
+                                  RenderStyleMode="ButtonRenderStyleMode.Outline">
+                            </DxButton>
+                            <DxButton Text="Link an existing member"
+                                  IconCssClass="bi-person-plus menu-icon me-3 h2"
+                                  CssClass="col-12 mb-1"
+                                  Click="@(e => OnMenuSelected(e,PortalMenuSelection.DoLinkExistingMember))"
+                                  RenderStyle="ButtonRenderStyle.Primary"
+                                  RenderStyleMode="ButtonRenderStyleMode.Outline">
+                            </DxButton>
+                            <DxButton Text="Unlink a member"
+                                  IconCssClass="bi-person-dash menu-icon me-3 h2"
+                                  CssClass="col-12 mb-1"
+                                  Click="@(e => OnMenuSelected(e,PortalMenuSelection.DoUnlinkMember))"
+                                  RenderStyle="ButtonRenderStyle.Primary"
+                                  RenderStyleMode="ButtonRenderStyleMode.Outline">
+                            </DxButton>
+                        </ContentTemplate>
+                    </DxAccordionItem>
+                    @if (!loginState.IsAdminOnBehalfOfMember) {
+                        <DxAccordionItem Text="Manage Credentials">
+                            <ContentTemplate>
+                                <DxButton Text="Change your email address"
+                                  IconCssClass="bi-shield-check menu-icon me-3 h2"
+                                  CssClass="col-12 mb-1"
+                                  Click="@(e => OnChangeCredential(e,"Email"))"
+                                  RenderStyle="ButtonRenderStyle.Primary"
+                                  RenderStyleMode="ButtonRenderStyleMode.Outline">
+                                </DxButton>
+                                <DxButton Text="Change your password"
+                                  IconCssClass="bi-shield-lock menu-icon me-3 h2"
+                                  CssClass="col-12 mb-1"
+                                  Click="@(e => OnChangeCredential(e,"ChangePassword"))"
+                                  RenderStyle="ButtonRenderStyle.Primary"
+                                  RenderStyleMode="ButtonRenderStyleMode.Outline">
+                                </DxButton>
+                                <DxButton Text="Two-factor authentication"
+                                  IconCssClass="bi-shield-check menu-icon me-3 h2"
+                                  CssClass="col-12 mb-1"
+                                  Click="@(e => OnChangeCredential(e,"TwoFactorAuthentication"))"
+                                  RenderStyle="ButtonRenderStyle.Primary"
+                                  RenderStyleMode="ButtonRenderStyleMode.Outline">
+                                </DxButton>
+                            </ContentTemplate>
+                        </DxAccordionItem>
+                    }
+                </Items>
+            </DxAccordion>
+            <p class="text-center">@($"There are {openCircuits} users logged in.")</p>
+        </div>
+    </DxFormLayout>
+
+}
+
+@code {
+    [CascadingParameter(Name = "OpenCircuits")]
+    int openCircuits { get; set; }
+
+    [CascadingParameter]
+    LoginState? loginState { get; set; }
+
+    [CascadingParameter(Name = "QueryResult")]
+    string? QueryResult { get; set; }
+
+    [Parameter]
+    public EventCallback<PortalMenuSelection> OnMenuOptionSelected { get; set; }
+
+    bool IsReady;
+    bool IsSmallLayout;
+    U3ADbContext? dbc;
+    SystemSettings? settings;
+    Term? term;
+    MarkupString? message;
+    MarkupString welcomeText;
+    string? SuccessMsg = null;
+
+    protected override async Task OnInitializedAsync() {
+        await base.OnInitializedAsync();
+        IsReady = false;
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+        settings = await dbc.SystemSettings.FirstOrDefaultAsync();
+        IsReady = true;
+    }
+
+    protected override void OnParametersSet() {
+        base.OnParametersSet();
+        var email = loginState.LoginEmail;
+        if (loginState.SelectedPerson != null) {
+            var welcome = $"Welcome <strong>{loginState.SelectedPerson.FullName}</strong>!";
+            welcomeText = new MarkupString(welcome);
+        }
+        else {
+            welcomeText = new MarkupString($"Welcome <strong>{loginState.LoginEmail}</strong>!");
+        }
+
+    }
+
+    protected override void OnAfterRender(bool firstRender) {
+        base.OnAfterRender(firstRender);
+    }
+
+    void OnChangeCredential(MouseEventArgs e, string page) {
+        NavigationManager.NavigateTo("Identity/Account/Manage/" + page, true);
+    }
+
+    void OnLogout() {
+        NavigationManager.NavigateTo("Identity/Account/logout", true);
+    }
+
+    async Task OnMenuSelected(MouseEventArgs e, PortalMenuSelection selection) {
+        await OnMenuOptionSelected.InvokeAsync(selection);
+    }
+
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+}

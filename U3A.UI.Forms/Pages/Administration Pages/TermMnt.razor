@@ -1,0 +1,271 @@
+﻿@page "/TermMnt"
+
+@inject NavigationManager NavManager
+@inject IJSRuntime js
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@implements IDisposable
+
+
+@attribute [Authorize]
+
+@if (!IsReady) {
+    <p><em>Loading...</em></p>
+}
+else {
+
+    <div class="row  align-content-start">
+        <h3>Enrolment Terms</h3>
+    </div>
+    <div class="row">
+        <div class="col-9 d-none d-md-inline">
+            Enrolment Terms are the periods of time in which courses and/or activities are offered to participants.
+            <br />A Term is preceded by an enrolment period in which participants are allowed to enrol in courses.
+        </div>
+        <div class="col-3 d-none d-md-inline">
+            <DxButton Text="Print Class Schedule For Cuurent Enrolment Period (Public View)" Click="OnPrint" />
+        </div>
+
+    </div>
+    <br />
+
+    <ErrorPopup @ref="@ErrorPopup" PopupHeader="@ErrorHeader" PopupMessage="@ErrorMessage" />
+    <MessageBox @ref="@messageBox" PopupWidth="@messageBoxWidth" />
+
+    <GridToolbar @ref="Toolbar" LinkedGrid=@mainGrid />
+
+    <DxGrid Data="@Terms" @ref=@mainGrid CssClass="h-75"
+        ColumnResizeMode="GridColumnResizeMode.ColumnsContainer"
+        ShowFilterRow="false"
+        ShowAllRows="true"
+        KeyFieldName="ID"
+        ValidationEnabled="true"
+        CustomizeEditModel="OnCustomizeEditModel"
+        EditMode="GridEditMode.PopupEditForm"
+        EditModelSaving="Grid_EditModelSaving">
+        <Columns>
+            <DxGridCommandColumnEx @ref="GridCommandColumn" Width="6rem" EditButtonVisible="true" DeleteButtonVisible="false" />
+            <DxGridDataColumn Width="6rem" Caption="Current?" FieldName="IsDefaultTerm">
+                <CellDisplayTemplate>
+                    <DxCheckBox Enabled="false" Checked="(bool)context.Value" />
+                </CellDisplayTemplate>
+                <FilterRowCellTemplate>
+                    <DxCheckBox Checked="(bool?)context.FilterRowValue"
+                            CheckedChanged="(bool? v) => context.FilterRowValue = v"
+                            AllowIndeterminateStateByClick="true"
+                            Alignment="CheckBoxContentAlignment.Center" />
+                </FilterRowCellTemplate>
+            </DxGridDataColumn>
+            <DxGridDataColumn Width="6rem" Caption="Final Allocation?" FieldName="IsClassAllocationFinalised">
+                <CellDisplayTemplate>
+                    <DxCheckBox Enabled="false" Checked="(bool)context.Value" />
+                </CellDisplayTemplate>
+                <FilterRowCellTemplate>
+                    <DxCheckBox Checked="(bool?)context.FilterRowValue"
+                            CheckedChanged="(bool? v) => context.FilterRowValue = v"
+                            AllowIndeterminateStateByClick="true"
+                            Alignment="CheckBoxContentAlignment.Center" />
+                </FilterRowCellTemplate>
+            </DxGridDataColumn>
+            <DxGridDataColumn Caption="Year" FieldName="Year" DisplayFormat="{0:D}" Width="6rem" />
+            <DxGridDataColumn Caption="Term" FieldName="TermNumber" DisplayFormat="Term-{0:D}" Width="6rem" />
+            <DxGridDataColumn Caption="Term Start" FieldName="StartDate"
+                          DisplayFormat="@constants.STD_DATE_FORMAT" />
+            <DxGridDataColumn Caption="Term End" FieldName="DurationSummary" />
+            <DxGridDataColumn Caption="Enrol Start" FieldName="EnrolStartSummary" />
+            <DxGridDataColumn Caption="Enrol End" FieldName="EnrolEndSummary" />
+        </Columns>
+        <TotalSummary>
+            <DxGridSummaryItem SummaryType="GridSummaryItemType.Custom" Name="Custom" FieldName="Discontinued" />
+        </TotalSummary>
+
+        <EditFormTemplate Context="EditFormContext">
+            @{
+                var editItem = (Term)EditFormContext.EditModel;
+            }
+            <DxFormLayout>
+                <DxFormLayoutItem @ref="@customValidations" ColSpanMd="12" CaptionCssClass="text-danger"
+                              Visible="false" ReadOnly="true" />
+            </DxFormLayout>
+            <DxFormLayout>
+                <DxFormLayoutItem ColSpanMd="12">
+                    <ValidationSummary />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Year" ColSpanMd="12">
+                    <DxComboBox Data="@Years" @bind-Value="@editItem.Year" />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Term" ColSpanMd="12">
+                    <DxSpinEdit @bind-Value="@editItem.TermNumber" MinValue="1" MaxValue="4" />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Start Date" ColSpanMd="12">
+                    <DxDateEdit @bind-Date="@editItem.StartDate"
+                            Mask=@constants.STD_DATE_FORMAT>
+                    </DxDateEdit>
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Duration (Weeks)" ColSpanMd="8">
+                    <DxSpinEdit @bind-Value="editItem.Duration" MinValue="1" MaxValue="52" />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem ColSpanMd="4">
+                    <label>@editItem.EndDate.ToString(constants.STD_DATE_FORMAT)</label>
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Enrolment Starts (Weeks)" ColSpanMd="8">
+                    <DxSpinEdit @bind-Value="@editItem.EnrolmentStarts" MinValue="-20" MaxValue="10" />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem ColSpanMd="4">
+                    <label>@editItem.EnrolmentStartDate.ToString(constants.STD_DATE_FORMAT)</label>
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Enrolment Ends (Weeks)" ColSpanMd="8">
+                    <DxSpinEdit @bind-Value="@editItem.EnrolmentEnds" MinValue="-20" MaxValue="10" />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem ColSpanMd="4">
+                    <label>@editItem.EnrolmentEndDate.ToString(constants.STD_DATE_FORMAT)</label>
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Is this the current Term?" ColSpanMd="12">
+                    <DxCheckBox @bind-Checked="editItem.IsDefaultTerm" />
+                </DxFormLayoutItem>
+            </DxFormLayout>
+        </EditFormTemplate>
+    </DxGrid>
+
+}
+
+@code {
+    bool IsReady;
+    private List<Term>? Terms { get; set; }
+    private List<int>? Years { get; set; }
+    private List<int>? TermNumbers { get; set; }
+
+    private DxGridCommandColumnEx? GridCommandColumn;
+    private DxFormLayoutItem? customValidations;
+    MessageBox? messageBox;
+    string? messageBoxWidth;
+
+    internal IGrid? mainGrid { get; set; }
+    internal ErrorPopup? ErrorPopup { get; set; }
+    internal GridToolbar? Toolbar;
+    internal string? ErrorHeader;
+    internal string? ErrorMessage;
+    U3ADbContext? dbc { get; set; }
+
+    protected override async Task OnInitializedAsync() {
+        // wire up the data
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+        Terms = await BusinessRule.EditableTermsAsync(dbc);
+        Years = new List<int>();
+        for (int i = -1; i < 5; i++) {
+            Years.Add(DateTime.Now.AddYears(i).Year);
+        }
+        TermNumbers = new List<int>();
+        for (int i = 1; i < 5; i++) {
+            TermNumbers.Add(i);
+        }
+        IsReady = true;
+    }
+
+    async Task OnCustomizeEditModel(GridCustomizeEditModelEventArgs e) {
+        if (e is null) {
+            throw new ArgumentNullException(nameof(e));
+        }
+
+        var editModel = (Term)e.EditModel;
+        var lastTerm = await BusinessRule.GetLastTermAsync(dbc);
+        if (e.IsNew) {
+            if (lastTerm != null) {
+                editModel.Year = lastTerm.Year;
+                editModel.TermNumber = lastTerm.TermNumber + 1;
+                if (editModel.TermNumber > 4) {
+                    editModel.Year += 1;
+                    editModel.TermNumber = 1;
+                }
+                var samTermLastYear = await BusinessRule.GetSameTermLastYearAsync(dbc, editModel.Year, editModel.TermNumber);
+                editModel.StartDate = BusinessRule.StartOfWeek(samTermLastYear.StartDate.AddYears(1),DayOfWeek.Monday);
+                editModel.Duration = samTermLastYear.Duration;
+                var span = editModel.StartDate.Subtract( lastTerm.StartDate.AddDays(lastTerm.Duration * 7));
+                editModel.EnrolmentStarts = span.Days / -7;
+                editModel.EnrolmentEnds = editModel.Duration;
+            }
+            else {
+                var today = DateTime.Now;
+                editModel.Year = today.Year;
+                editModel.TermNumber = 1;
+                editModel.StartDate = today.AddDays(((int)today.DayOfWeek - 1) * -1);
+                editModel.Duration = 7;
+                editModel.EnrolmentStarts = -7;
+                editModel.EnrolmentEnds = 7;
+            }
+        }
+    }
+
+    protected override void OnAfterRender(bool firstRender) {
+        // wire up the toolbar
+        base.OnAfterRender(firstRender);
+        if (Toolbar != null && mainGrid != null) { Toolbar.LinkedGrid = mainGrid; }
+    }
+
+    async Task Grid_EditModelSaving(GridEditModelSavingEventArgs e) {
+        var editModel = (Term)e.EditModel;
+        e.Cancel = !IsDataOK(editModel);
+        if (!e.Cancel) {
+            if (editModel.IsDefaultTerm) { ClearDefaultTerm(); }
+            // Re-query a data item from the store.
+            var dataItem = e.IsNew ? new Term() : dbc.Term.Find(editModel.ID);
+            // Assign changes from the edit model to the data item.
+            if (dataItem != null) {
+                editModel.CopyTo(dataItem);
+                try {
+                    // Post changes to the database.
+                    if (e.IsNew) await dbc.AddAsync(dataItem);
+                    await dbc.SaveChangesAsync();
+                    // update the Grid.
+                    if (e.IsNew) {
+                        Terms.Insert(0, dataItem);
+                    }
+                    else {
+                        int idx = Terms.FindIndex(x => x.ID == dataItem.ID);
+                        Terms[idx] = dataItem;
+                    }
+                }
+                catch (Exception ex) {
+                    ErrorHeader = "Save to database error";
+                    ErrorMessage = Helpers.GetErrorMessage(ex);
+                    await ErrorPopup.ShowPopupAsync();
+                    dbc?.ChangeTracker?.Clear();
+                    e.Cancel = true;
+                }
+            }
+        }
+    }
+
+    void ClearDefaultTerm () {
+        // Allow only on default term at a time
+        foreach (var t in Terms) {
+            t.IsDefaultTerm = false;
+        }
+    }
+
+    bool IsDataOK(Term term) {
+        bool result = true;
+        mainGrid.BeginUpdate();
+        customValidations.Caption = string.Empty;
+        customValidations.Visible = false;
+        DateTime minDate = new DateTime(term.Year, 1, 1);
+        DateTime maxDate = new DateTime(term.Year, 12, 31);
+        if (term.StartDate < minDate ||
+            term.StartDate > maxDate ||
+            term.StartDate.DayOfWeek != DayOfWeek.Monday) {
+            customValidations.Caption = $"The Start Date must be Monday and in range {minDate.ToShortDateString()} to {maxDate.ToShortDateString()}";
+            customValidations.Visible = true;
+            result = false;
+        }
+        mainGrid.EndUpdate();
+        return result;
+    }
+
+    public void OnPrint() {
+        NavManager.NavigateTo("Public/ClassScheduleView");
+    }
+
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+
+}

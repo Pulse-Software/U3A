@@ -1,0 +1,176 @@
+﻿@page "/AdminMemberPortal"
+
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@inject NavigationManager NavigationManager
+@using Microsoft.AspNetCore.Components.Authorization
+@using U3A.UI.Forms.Pages.MembersPortal
+
+@implements IDisposable
+
+
+@attribute [Authorize]
+
+@if (!IsReady) {
+    <p><em>Loading...</em></p>
+}
+else {
+    <CascadingValue Value="@LoginState">
+
+        <MessageBox @ref="@messageBox" />
+        <div class="h3 mt-4 text-center">Member Portal (Administration)</div>
+        <div class="h6 text-center">This procedure is intended for office staff to process enrolments and/or membership fees on behalf of members.</div>
+        <DxFormLayout CssClass="col-12 col-lg-8 mx-auto">
+            <DxFormLayoutGroup Caption="Process Member Enrolments / Renewals" ColSpanMd="12">
+                <DxFormLayoutItem Caption="Process on behalf of" ColSpanLg="9">
+                    <DxComboBox Data="@people"
+                            AllowUserInput=true
+                            ClearButtonDisplayMode="DataEditorClearButtonDisplayMode.Never"
+                            FilteringMode="DataGridFilteringMode.Contains"
+                            ListRenderMode="ListRenderMode.Virtual"
+                            TextFieldName="@nameof(Person.PersonSummary)"
+                            @bind-Value="@selectedPerson">
+                        <DxListEditorColumn FieldName="@nameof(Person.LastName)"
+                                        Caption="Last Name" />
+                        <DxListEditorColumn FieldName="@nameof(Person.FirstName)"
+                                        Caption="First Name" />
+                        <DxListEditorColumn FieldName="@nameof(Person.Mobile)"
+                                        Caption="Mobile" />
+                        <DxListEditorColumn FieldName="@nameof(Person.Email)"
+                                        Caption="Email" />
+                    </DxComboBox>
+                </DxFormLayoutItem>
+                <DxButton Text="Process" CssClass="button-width mt-2 mx-2"
+                      RenderStyle="@ButtonRenderStyle.Primary"
+                      Click="@OnProcess" />
+                <DxButton Text="Clear" CssClass="button-width mt-2"
+                      RenderStyle="@ButtonRenderStyle.Secondary"
+                      Click="@OnClear" />
+            </DxFormLayoutGroup>
+        </DxFormLayout>
+        @if (isSelected) {
+            <div class="col-12 m-auto">
+                <MemberPortal />
+            </div>
+        }
+        else {
+            <DxFormLayout CssClass="mt-4 col-12 col-lg-8 mx-auto">
+                <DxAccordion ExpandMode="AccordionExpandMode.Single" CssClass="col col-12"
+                     ExpandCollapseAction="AccordionExpandCollapseAction.HeaderClick">
+                    <Items>
+                        <DxAccordionItem Text="Add/Edit Member Details" Expanded="false">
+                            <ContentTemplate>
+                                <div class="m-2"><PersonMnt IsEmbedded="true" GridHeight="40vh" /></div>
+                            </ContentTemplate>
+                        </DxAccordionItem>
+                        <DxAccordionItem Text="Received Today" Expanded="true">
+                            <ContentTemplate>
+                                <div class="m-2">
+                                    <DxGrid Data="@RecevivedToday" CssClass="grid-height"
+                                    ColumnResizeMode="GridColumnResizeMode.ColumnsContainer"
+                                    ShowFilterRow="false"
+                                    ShowAllRows="true"
+                                    KeyFieldName="ID">
+                                        <Columns>
+                                            <DxGridDataColumn Width="20rem" Caption="Name" FieldName="Person.FullName" />
+                                            <DxGridDataColumn Caption="Amount" FieldName="Amount" DisplayFormat="c2" />
+                                        </Columns>
+                                        <TotalSummary>
+                                            <DxGridSummaryItem FieldName="Amount"
+                                                       SummaryType="GridSummaryItemType.Sum"
+                                                       FooterColumnName="Amount"
+                                                       ValueDisplayFormat="c2" />
+                                        </TotalSummary>
+                                    </DxGrid>
+                                </div>
+                            </ContentTemplate>
+                        </DxAccordionItem>
+                    </Items>
+                </DxAccordion>
+            </DxFormLayout>
+        }
+    </CascadingValue>
+}
+<style>
+    .grid-height {
+        height: 40vh;
+    }
+
+</style>
+
+@code {
+
+    [CascadingParameter]
+    Task<AuthenticationState> authenticationStateTask { get; set; }
+
+    [CascadingParameter(Name = "QueryResult")]
+    string? QueryResult { get; set; }
+    [CascadingParameter]
+    public LoginState? LoginState { get; set; }
+
+    bool IsReady;
+    bool isSelected = false;
+
+    MessageBox? messageBox;
+    U3ADbContext dbc { get; set; }
+    List<Person> people { get; set; }
+    Person selectedPerson { get; set; }
+    string authEmail;
+    IEnumerable<Receipt> RecevivedToday;
+
+    protected override async Task OnInitializedAsync() {
+        // wire up the data
+        using (dbc = await U3Adbfactory.CreateDbContextAsync()) {
+            people = await BusinessRule.SelectablePersonsIncludeUnfinancialAsync(dbc);
+        }
+        IsReady = true;
+    }
+
+    protected override async Task OnParametersSetAsync() {
+        await base.OnParametersSetAsync();
+        using (var dbc = U3Adbfactory.CreateDbContext()) {
+            var authenticationState = await authenticationStateTask;
+            authEmail = authenticationState.User.Identity.Name;
+            RecevivedToday = await dbc.Receipt.AsNoTracking()
+                                .Include(x => x.Person)
+                                .OrderBy(x => x.UpdatedOn)
+                                .Where(x => x.Date == DateTime.Today
+                                            && x.Amount != 0
+                                            && x.User.ToLower() == authEmail.ToLower()).ToArrayAsync();
+            if (QueryResult != null) {
+                bool hasUnprocessedPayments = await BusinessRule.HasUnporcessedOnlinePayment(dbc, authEmail);
+                if (hasUnprocessedPayments) {
+                    var payment = await BusinessRule.GetUnporcessedOnlinePayment(dbc, authEmail);
+                    selectedPerson = await dbc.Person.FindAsync(payment.PersonID);
+                    isSelected = true;
+                    LoginState = new LoginState(authEmail, selectedPerson, U3Adbfactory);
+                }
+            }
+        }
+    }
+
+    void OnClear() {
+        isSelected = false;
+        selectedPerson = null;
+    }
+
+    async Task OnProcess() {
+        if (selectedPerson == null) {
+            isSelected = false;
+            await messageBox.ShowOkOnlyAsync("Member not selected", "Please select a member to process.");
+        }
+        else {
+            using (var dbc = U3Adbfactory.CreateDbContext()) {
+                selectedPerson = await dbc.Person.FindAsync(selectedPerson.ID);
+            }
+            LoginState = new LoginState(authEmail, selectedPerson, U3Adbfactory);
+            isSelected = true;
+            StateHasChanged();
+        }
+    }
+
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+
+}
+

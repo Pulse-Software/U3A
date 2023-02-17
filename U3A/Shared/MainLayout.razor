@@ -1,0 +1,147 @@
+﻿@using System.Security.Claims
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.JSInterop
+@using Microsoft.AspNetCore.Identity
+@using U3A.Services
+
+@inherits LayoutComponentBase
+@implements IDisposable;
+
+@inject NavigationManager NavigationManager
+@inject Blazored.LocalStorage.ILocalStorageService localStorage
+@inject UserManager<IdentityUser> UserManager
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+
+<DxLayoutBreakpoint DeviceSize="DeviceSize.XSmall"
+                    @bind-IsActive="@IsXtraSmallLayout" />
+<DxLayoutBreakpoint DeviceSize="DeviceSize.Small"
+                    @bind-IsActive="@IsSmallLayout" />
+<DxLayoutBreakpoint DeviceSize="DeviceSize.Medium"
+                    @bind-IsActive="@IsMediumLayout" />
+<DxLayoutBreakpoint DeviceSize="DeviceSize.Large"
+                    @bind-IsActive="@IsLargeLayout" />
+<DxLayoutBreakpoint DeviceSize="DeviceSize.XLarge"
+                    @bind-IsActive="@IsXtraLargeLayout" />
+
+<div class="page vh-100">
+    @*    @if (IsXtraSmallLayout) {
+    <p>Exra Small</p>
+    }
+    @if (IsSmallLayout) {
+    <p>Small</p>
+    }
+    @if (IsMediumLayout) {
+    <p>Medium</p>
+    }
+    @if (IsLargeLayout) {
+    <p>Large</p>
+    }
+    @if (IsXtraLargeLayout) {
+    <p>Exra Large</p>
+    }
+    *@    <DxGridLayout CssClass="pageBackColor">
+        <Rows>
+            <DxGridLayoutRow Areas="Left-Blank header Right-Blank" Height="auto" />
+            <DxGridLayoutRow Areas="Left-Blank content Right-Blank" />
+            <DxGridLayoutRow Areas="footer footer footer" Height="1rem" />
+        </Rows>
+        <Columns>
+            @{
+                if (IsXtraLargeLayout) {
+                    <DxGridLayoutColumn Width="10%" />
+                    <DxGridLayoutColumn Width="80%" />
+                    <DxGridLayoutColumn Width="10%" />
+                }
+                else {
+                    <DxGridLayoutColumn Width="1%" />
+                    <DxGridLayoutColumn Width="98%" />
+                    <DxGridLayoutColumn Width="1%" />
+                }
+            }
+        </Columns>
+        <Items>
+            <DxGridLayoutItem Area="Left-Blank" CssClass="d-print-none" />
+            <DxGridLayoutItem Area="header" CssClass="py-1">
+                <Template>
+                    @if (hasRole) {
+                        <Header />
+                    }
+                    else {
+                        <PortalHeader />
+                    }
+                </Template>
+            </DxGridLayoutItem>
+            <DxGridLayoutItem Area="content">
+                <Template>
+                    <ErrorBoundary @ref="@errorBoundary">
+                        <ChildContent>
+                            @Body
+                        </ChildContent>
+                        <ErrorContent>
+                            <p class="u3admin-error-boundary">
+                                Oops! Something went wrong. An unexpected error has occurred.<br />
+                                When reporting this issue please include the date and time: @(DateTime.Now.ToUniversalTime()) UTC.
+                                <button class="btn btn-warning" @onclick="ResetError">Reset</button>
+                            </p>
+                        </ErrorContent>
+                    </ErrorBoundary>
+                </Template>
+            </DxGridLayoutItem>
+            <DxGridLayoutItem Area="Right-Blank" CssClass="d-print-none" />
+        </Items>
+    </DxGridLayout>
+</div>
+
+@code {
+
+    [CascadingParameter]
+    Task<AuthenticationState> authenticationStateTask { get; set; }
+
+    ErrorBoundary errorBoundary;
+    IEnumerable<IdentityRole> Roles { get; set; }
+    bool IsXtraSmallLayout { get; set; }
+    bool IsSmallLayout { get; set; }
+    bool IsMediumLayout { get; set; }
+    bool IsLargeLayout { get; set; }
+    bool IsXtraLargeLayout { get; set; }
+    U3ADbContext dbc { get; set; }
+
+    bool hasRole;
+
+    protected override void OnInitialized() {
+        base.OnInitialized();
+        NavigationManager.LocationChanged += OnLocationChanged;
+    }
+
+    protected override async Task OnParametersSetAsync() {
+        using (var dbc = U3Adbfactory.CreateDbContext()) {
+            Roles = dbc.Roles.ToList();
+            var authenticationState = await authenticationStateTask;
+            hasRole = false;
+            foreach (var r in Roles) {
+                if (authenticationState.User.IsInRole(r.Name)) {
+                    hasRole = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    private void ResetError() {
+        errorBoundary?.Recover();
+        NavigationManager.NavigateTo("/", true);
+    }
+
+    async void OnLocationChanged(object? sender, LocationChangedEventArgs args) {
+        //if (IsMediumLayout) {
+        //await InvokeAsync(StateHasChanged);
+        //}
+    }
+
+    public void Dispose() {
+        NavigationManager.LocationChanged -= OnLocationChanged;
+        dbc?.Dispose();
+    }
+
+}
+

@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net7.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+	  <WarningLevel>0</WarningLevel>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="AdminMemberPortal.razor" />
+    <None Remove="MembershipFeesMnt.razor" />
+    <None Remove="ReceiptMnt.razor" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Blazored.LocalStorage" Version="4.3.0" />
+    <PackageReference Include="BlazorTime" Version="1.0.3" />
+    <PackageReference Include="DevExpress.Blazor" Version="22.2.3" />
+    <PackageReference Include="DevExpress.Blazor.RichEdit" Version="22.2.3" />
+    <PackageReference Include="DevExpress.RichEdit.Core" Version="22.2.3" />
+    <PackageReference Include="Eway.Rapid.Standard" Version="1.0.0" />
+    <PackageReference Include="Eway.Rapid.Standard.Abstractions" Version="1.0.0" />
+    <PackageReference Include="Finbuckle.MultiTenant" Version="6.10.0" />
+    <PackageReference Include="Finbuckle.MultiTenant.AspNetCore" Version="6.10.0" />
+    <PackageReference Include="Finbuckle.MultiTenant.EntityFrameworkCore" Version="6.10.0" />
+    <PackageReference Include="Microsoft.ApplicationInsights.AspNetCore" Version="2.21.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.2" />
+    <PackageReference Include="Postmark" Version="4.7.7" />
+    <PackageReference Include="SendGrid" Version="9.28.1" />
+    <PackageReference Include="Twilio.AspNet.Core" Version="7.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\U3A.Data\U3A.Database.csproj" />
+    <ProjectReference Include="..\U3A.Model\U3A.Model.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,240 @@
+﻿@page "/VolunteerMnt"
+
+@inject IJSRuntime js
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@implements IDisposable
+
+@attribute [Authorize]
+
+@if (!IsReady) {
+    <p><em>Loading...</em></p>
+}
+else {
+
+    <div class="row  align-content-start">
+        <h3>Volunteer Activities</h3>
+    </div>
+    <div class="row">
+        <div class="col-7 d-none d-md-inline">
+            Enter/Edit the participants who have offered to perform voluntary activities.
+        </div>
+        <div class="col-5  d-none d-md-inline">
+            <DxFormLayout>
+                <DxFormLayoutItem Caption="Activity" ColSpanMd="9">
+                    <DxComboBox Data="@Activities" NullText="Select Voluntary Activity"
+                            FilteringMode="DataGridFilteringMode.Contains"
+                            Value="@selectedActivity"
+                            ValueChanged="@((string activity) => SelectedActivityChanged(activity))" />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem ColSpanMd="3">
+                    <DxButton Text="Communicate"
+                          Click="@OnCommunicate"
+                          RenderStyle="ButtonRenderStyle.Primary" />
+                </DxFormLayoutItem>
+            </DxFormLayout>
+        </div>
+
+    </div>
+    <br />
+
+    <Progress @ref="@ProgressBar" />
+    <SelectDocumentTemplatePopup @ref="@selectDocumentTemplatePopup" dbContext="@dbc"
+                             DocumentTemplates="@DocumentTemplates" SendTo="@SendTo" />
+
+    <MessageBox @ref="@messageBox" />
+
+    <ErrorPopup @ref="@ErrorPopup" PopupHeader="@ErrorHeader" PopupMessage="@ErrorMessage" />
+
+    <GridToolbar @ref="Toolbar" LinkedGrid=@mainGrid />
+
+    <DxGrid Data="@Volunteers" @ref=@mainGrid CssClass="h-75"
+        ColumnResizeMode="GridColumnResizeMode.Disabled"
+        @bind-SelectedDataItems="@SelectedDataItems"
+        AllowSelectRowByClick="true"
+        ShowFilterRow="false"
+        ShowAllRows="true"
+        KeyFieldName="ID"
+        ValidationEnabled="true"
+        PopupEditFormCssClass="popup-width"
+        CustomizeEditModel="Grid_CustomizeEditModel"
+        EditMode="GridEditMode.PopupEditForm"
+        DataItemDeleting="Grid_DataItemDeleting"
+        EditModelSaving="Grid_EditModelSaving">
+        <Columns>
+            <DxGridSelectionColumn Width="2rem" />
+            <DxGridCommandColumnEx Visible=@((string.IsNullOrWhiteSpace(selectedActivity)) ? false : true) />
+            <DxGridDataColumn Caption="Volunteer" FieldName="Person.PersonSummary" Width="35rem" />
+            <DxGridDataColumn Caption="Comment" FieldName="Comment" />
+        </Columns>
+
+        <EditFormTemplate Context="VolunteerContext">
+            @{
+                var editItem = (Volunteer)VolunteerContext.EditModel;
+            }
+            <DxFormLayout>
+                <DxFormLayoutItem ColSpanMd="12">
+                    <ValidationSummary />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Volunteer" ColSpanMd="12">
+                    <DxComboBox Data="Persons"
+                            ListRenderMode="ListRenderMode.Virtual"
+                            FilteringMode="DataGridFilteringMode.Contains"
+                            ClearButtonDisplayMode="DataEditorClearButtonDisplayMode.Auto"
+                            @bind-Value="editItem.Person"
+                            TextFieldName="@nameof(Person.PersonSummary)">
+                    </DxComboBox>
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Comment" ColSpanMd="12">
+                    <DxTextBox @bind-Text="@editItem.Comment" />
+                </DxFormLayoutItem>
+            </DxFormLayout>
+        </EditFormTemplate>
+    </DxGrid>
+
+
+}
+<style>
+    .popup-width {
+        min-width: 40rem;
+    }
+</style>
+
+@code {
+    bool IsReady;
+    IReadOnlyList<object> SelectedDataItems { get; set; }
+    SystemSettings? settings;
+    List<string> Activities;
+    List<Person> Persons;
+    List<Volunteer> Volunteers { get; set; }
+    string? selectedActivity;
+
+    MessageBox messageBox;
+
+    internal Progress? ProgressBar;
+    private List<Person> SendTo { get; set; }
+    private List<DocumentTemplate> DocumentTemplates;
+    private SelectDocumentTemplatePopup selectDocumentTemplatePopup;
+    DocumentServer server;
+    int documentsSent;
+
+    internal IGrid? mainGrid { get; set; }
+    internal ErrorPopup? ErrorPopup { get; set; }
+    internal GridToolbar? Toolbar;
+    internal string ErrorHeader;
+    internal string ErrorMessage;
+    U3ADbContext dbc { get; set; }
+
+    protected override async Task OnInitializedAsync() {
+        // wire up the data
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+        Persons = await BusinessRule.EditablePersonAsync(dbc);
+        DocumentTemplates = await BusinessRule.SelectableDocumentTemplatesAsync(dbc);
+        settings = await dbc.SystemSettings.FirstOrDefaultAsync();
+        if (settings != null) {
+            Activities = settings.VolunteerActivities.Split(new string[] { "\n" },
+                                StringSplitOptions.None)
+                                .Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
+        }
+        server = new DocumentServer(dbc);
+        server.DocumentSentEvent += Server_DocumentSent;
+        await RefreshData();
+        IsReady = true;
+    }
+
+    async void SelectedActivityChanged(string activity) {
+        selectedActivity = activity;
+        await RefreshData();
+    }
+
+    async void Grid_CustomizeEditModel(GridCustomizeEditModelEventArgs e) {
+        if (e.IsNew) {
+            var editModel = (Volunteer)e.EditModel;
+            editModel.Activity = selectedActivity;
+        }
+    }
+
+    async Task RefreshData() {
+        Volunteers = await dbc.Volunteer.Where(x => x.Activity == selectedActivity).ToListAsync();
+        StateHasChanged();
+    }
+
+    protected override void OnAfterRender(bool firstRender) {
+        // wire up the toolbar
+        base.OnAfterRender(firstRender);
+        if (Toolbar != null && mainGrid != null) { Toolbar.LinkedGrid = mainGrid; }
+    }
+
+    async Task Grid_EditModelSaving(GridEditModelSavingEventArgs e) {
+        var editModel = (Volunteer)e.EditModel;
+        // Re-query a data item from the store.
+        var dataItem = e.IsNew ? new Volunteer() : dbc.Volunteer.Find(editModel.ID);
+        // Assign changes from the edit model to the data item.
+        if (dataItem != null) {
+            editModel.CopyTo(dataItem);
+            if (editModel.Person != null) { dataItem.Person = dbc.Person.Find(editModel.Person.ID); }
+            // Post changes to the database.
+            if (e.IsNew) await dbc.AddAsync(dataItem);
+            await SaveChangesAsync();
+            // update the Grid.
+            if (e.IsNew) {
+                Volunteers.Insert(0, dataItem);
+            }
+            else {
+                int idx = Volunteers.FindIndex(x => x.ID == dataItem.ID);
+                Volunteers[idx] = dataItem;
+            }
+        }
+    }
+
+    async Task Grid_DataItemDeleting(GridDataItemDeletingEventArgs e) {
+        var Volunteer = (Volunteer)e.DataItem;
+        await BusinessRule.DeleteLeadershipRole(dbc, Volunteer.ID);
+        dbc.Remove(Volunteer);
+        await SaveChangesAsync();
+        await RefreshData();
+    }
+
+    async Task<bool> SaveChangesAsync() {
+        bool result = false;
+        try {
+            // Post changes to the database.
+            await dbc.SaveChangesAsync();
+            result = true;
+        }
+        catch (Exception ex) {
+            ErrorHeader = "Save to database error";
+            ErrorMessage = Helpers.GetErrorMessage(ex);
+            await ErrorPopup.ShowPopupAsync();
+            dbc?.ChangeTracker?.Clear();
+        }
+        return result;
+    }
+
+    async Task OnCommunicate() {
+        if (SelectedDataItems == null || SelectedDataItems.Count <= 0) {
+            await messageBox.ShowOkOnlyAsync("Make a Selection", "Select one or more participants to communicate with.");
+            return;
+        }
+        SendTo = SelectedDataItems.Cast<Volunteer>().Select(x => x.Person).ToList();
+        if (await selectDocumentTemplatePopup.ShowAsync()) {
+            documentsSent = 0;
+            await ProgressBar.ShowAsync("Sending ... Please Wait", SelectedDataItems.Count);
+            List<ExportData> exportData = await BusinessRule.GetExportDataAsync(dbc, SendTo);
+            bool overridePreference = selectDocumentTemplatePopup.OverrideCommunicationPreference;
+            await server.MailMerge(dbc, selectDocumentTemplatePopup.SelectedDocumentTemplate, exportData,overridePreference);
+            await ProgressBar.Close();
+            await messageBox.ShowOkOnlyAsync("Communication Complete", server.GetHTMLResult());
+        }
+    }
+
+    async void Server_DocumentSent(object sender, DocumentSentEventArgs e) {
+        documentsSent += e.DocumentsSent;
+        await ProgressBar.SetValueAsync(documentsSent);
+    }
+
+
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+
+}

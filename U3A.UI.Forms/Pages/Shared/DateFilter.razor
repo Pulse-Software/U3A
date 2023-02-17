@@ -1,0 +1,98 @@
+﻿
+<DxPopup Visible="@popupVisible" @ref="@popup"
+         CloseButtonClick="@NegativeButtonClicked"
+         CloseOnEscape="false"
+         CloseOnOutsideClick="false"
+         ShowFooter="true"
+         HeaderText="Date Filter">
+    <BodyTemplate Context="PopupContext">
+        <DxFormLayout CssClass="p-2">
+            <DxFormLayoutItem Caption="Filter Type" ColSpanMd="12" CssClass="mt-2">
+                <DxComboBox Data="@FilterTypeList" Value="@sFilterType" ValueChanged="@((string type) => OnFilterTypeChanged(type))" />
+            </DxFormLayoutItem>
+            <DxFormLayoutItem Caption="From Date" ColSpanMd="12">
+                <DxDateEdit @bind-Date="FromDate" />
+            </DxFormLayoutItem>
+            <DxFormLayoutItem Caption="To Date" ColSpanMd="12" Visible="@(FilterType == FilterTypes.DateRange)">
+                <DxDateEdit @bind-Date="ToDate" />
+            </DxFormLayoutItem>
+        </DxFormLayout>
+    </BodyTemplate>
+    <FooterContentTemplate>
+        <DxButton CssClass="popup-button"
+                  RenderStyle="ButtonRenderStyle.Primary"
+                  Text="Select"
+                  Click="@AffirmativeButtonClicked" />
+        <DxButton CssClass="popup-button"
+                  RenderStyle="ButtonRenderStyle.Secondary"
+                  Text="Cancel" Click="@NegativeButtonClicked" />
+    </FooterContentTemplate>
+</DxPopup>
+
+@code {
+
+    public enum FilterTypes
+    {
+        OnOrAfter,
+        OnOrBefore,
+        DateRange
+    }
+
+
+    [Parameter]
+    public FilterTypes? FilterType { get; set; }
+    [Parameter]
+    public DateTime FromDate { get; set; }
+    [Parameter]
+    public DateTime ToDate { get; set; }
+
+    List<String> FilterTypeList = new List<string>() { "On or after", "On or Before", "Date Range" };
+    string sFilterType;
+    bool popupVisible { get; set; }
+    DxPopup? popup;
+
+    TaskCompletionSource<bool>? tcs;
+
+    public Task<bool> ShowAsync() {
+        if (FilterType == null) {
+            FilterType = FilterTypes.OnOrAfter;
+            sFilterType = "On or after";
+            FromDate = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
+        }
+        popupVisible = true;
+        tcs = new TaskCompletionSource<bool>();
+        tcs.Task.ContinueWith(_ => {
+            popupVisible = false;
+        });
+        StateHasChanged();
+        return tcs.Task;
+    }
+
+    void AffirmativeButtonClicked() {
+        popupVisible = false;
+        tcs?.SetResult(true);
+    }
+    void NegativeButtonClicked() {
+        popupVisible = false;
+        tcs?.SetResult(false);
+    }
+
+    void OnFilterTypeChanged(string filterType) {
+        sFilterType = filterType;
+        DateTime today = DateTime.Today;
+        if (filterType.ToLower() == "on or after") {
+            FilterType = FilterTypes.OnOrAfter;
+            FromDate = new DateTime(today.Year, today.Month, 1);
+        }
+        if (filterType.ToLower() == "on or before") {
+            FromDate = today;
+            FilterType = FilterTypes.OnOrBefore;
+        }
+        if (filterType.ToLower() == "date range") {
+            FromDate = new DateTime(today.Year, today.Month, 1);
+            ToDate = today;
+            FilterType = FilterTypes.DateRange;
+        }
+    }
+
+}

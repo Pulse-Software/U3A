@@ -1,0 +1,13 @@
+﻿@page "/Public"
+
+@using Microsoft.AspNetCore.Authorization
+
+@attribute [AllowAnonymous]
+
+@namespace U3A.Pages.Public
+@addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers
+@{
+    Layout = "_PublicLayout";
+}
+
+<component type="typeof(PublicApp)" render-mode="ServerPrerendered" />

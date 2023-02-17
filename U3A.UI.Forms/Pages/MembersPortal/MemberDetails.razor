@@ -1,0 +1,298 @@
+﻿@inject IJSRuntime js
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@inject NavigationManager NavigationManager
+
+@implements IDisposable
+
+
+@attribute [Authorize]
+
+@if (!IsReady) {
+    <p><em>Loading...</em></p>
+}
+else {
+
+    <ErrorPopup @ref="@ErrorPopup" PopupHeader="@ErrorHeader" PopupMessage="@ErrorMessage" />
+    <MessageBox @ref="@messageBox" />
+
+    <div class="col-12 col-lg-8 col-xl-6 mx-auto mb-2">
+        <EditForm Model="@person"
+              OnValidSubmit=@ValidFormSubmitted
+              Context="editContext">
+            <DataAnnotationsValidator />
+            <DxFormLayout CssClass="border-top border-bottom scrollable m-auto px-2">
+                @if (loginState.SelectedPerson == null) {
+                    <span class="text-center alert alert-success collapse col-12">
+                        <div>
+                            Welcome! Let's start by getting to know you.
+                        </div>
+                    </span>
+                }
+                @if (IsNewLinkedMember) {
+                    <span class="text-center alert alert-info">
+                        <div>
+                            You are about to create a new linked member for whom you will
+                            assume responsibility for membership fees and course enrolment.
+                        </div>
+                    </span>
+                    <DxFormLayoutItem Visible="@(!isDatabaseCheckDone)" Context="ThisContext" ColSpanMd="12">
+                        <DxFormLayoutGroup Caption="Is the person to link already on file?">
+                            <DxFormLayoutItem Caption="First Name" ColSpanMd="12">
+                                <DxTextBox @bind-Text="@FirstName" />
+                            </DxFormLayoutItem>
+                            <DxFormLayoutItem Caption="Last Name" ColSpanMd="12">
+                                <DxTextBox @bind-Text="@LastName" />
+                            </DxFormLayoutItem>
+                            <DxFormLayoutItem Caption="City" ColSpanMd="12">
+                                <DxTextBox @bind-Text="@City" />
+                            </DxFormLayoutItem>
+                        </DxFormLayoutGroup>
+                        <DxFormLayoutItem>
+                            <DxButton CssClass="col-3 me-2" Click="OnSearch" Text="Search" RenderStyle="@ButtonRenderStyle.Primary" />
+                            <DxButton CssClass="col-3" SubmitFormOnClick="false" Text="Cancel" RenderStyle="@ButtonRenderStyle.Secondary" Click="@OnCancel" />
+                        </DxFormLayoutItem>
+                    </DxFormLayoutItem>
+                }
+                <div hidden="@(IsNewLinkedMember && !isDatabaseCheckDone)">
+                    <DxFormLayoutGroup Caption="Personal">
+                        <DxFormLayoutItem Caption="Identity" ColSpanMd="12" Visible="@(!isNew)">
+                            <DxTextBox Text="@person.PersonIdentity"
+                                   TextExpression="@(() => person.PersonIdentity)" ReadOnly="true" />
+                        </DxFormLayoutItem>
+                        <DxFormLayoutItem Caption="First Name" ColSpanMd="12">
+                            <DxTextBox @bind-Text="@person.FirstName" ReadOnly="@(isDatabaseCheckDone)" />
+                            <ValidationMessage For="@(() => person.FirstName)" />
+                        </DxFormLayoutItem>
+                        <DxFormLayoutItem Caption="Last Name" ColSpanMd="12">
+                            <DxTextBox @bind-Text="@person.LastName" ReadOnly="@(isDatabaseCheckDone)" />
+                            <ValidationMessage For="@(() => person.LastName)" />
+                        </DxFormLayoutItem>
+                        <DxFormLayoutItem Caption="Gender" ColSpanMd="12">
+                            <DxComboBox Data="@gender" @bind-Value="@person.Gender" />
+                            <ValidationMessage For="@(() => person.Gender)" />
+                        </DxFormLayoutItem>
+                        <DxFormLayoutItem Caption="Birth Date" ColSpanMd="12">
+                            <DxDateEdit @bind-Date="@person.BirthDate" NullText="Optional It helps to know you." />
+                        </DxFormLayoutItem>
+                        <DxFormLayoutItem Caption="Occupation/Skill" ColSpanMd="12">
+                            <DxMemo @bind-Text="@person.Occupation" Rows="3"
+                                NullText="Tinker, tailor, soldier, spy? Your skills may be useful to us. Enter one per line." />
+                        </DxFormLayoutItem>
+                    </DxFormLayoutGroup>
+
+                    <DxFormLayoutGroup Caption="Address / Contact Information">
+                        <DxFormLayoutItem Caption="Street" ColSpanXl="12">
+                            <DxTextBox @bind-Text="@person.Address" />
+                            <ValidationMessage For="@(() => person.Address)" />
+                        </DxFormLayoutItem>
+                        <DxFormLayoutItem Caption="City" ColSpanMd="12">
+                            <DxTextBox @bind-Text="@person.City" ReadOnly="@(isDatabaseCheckDone)" />
+                            <ValidationMessage For="@(() => person.City)" />
+                        </DxFormLayoutItem>
+                        <DxFormLayoutItem Caption="State" ColSpanMd="6">
+                            <DxComboBox Data="@states" @bind-Value="@person.State" />
+                            <ValidationMessage For="@(() => person.State)" />
+                        </DxFormLayoutItem>
+                        <DxFormLayoutItem Caption="Postcode" ColSpanMd="6">
+                            <DxSpinEdit @bind-Value="@person.Postcode" />
+                            <ValidationMessage For="@(() => person.Postcode)" />
+                        </DxFormLayoutItem>
+                        <DxFormLayoutItem Caption="Email" ColSpanMd="12">
+                            <DxTextBox @bind-Text="@person.Email" ReadOnly="true" />
+                        </DxFormLayoutItem>
+                        <DxFormLayoutItem Caption="Home Phone" ColSpanMd="12">
+                            <DxTextBox @bind-Text="@person.HomePhone" />
+                        </DxFormLayoutItem>
+                        <DxFormLayoutItem Caption="Mobile Phone" ColSpanMd="12">
+                            <DxTextBox @bind-Text="@person.Mobile" />
+                        </DxFormLayoutItem>
+                        <DxFormLayoutItem Caption="Communication preference" ColSpanXs="12" ColSpanMd="8">
+                            <DxComboBox Data="@Communication" @bind-Value="@person.Communication" />
+                        </DxFormLayoutItem>
+                        <DxFormLayoutItem Caption="SMS Opt-Out?"
+                                      CaptionPosition="CaptionPosition.Horizontal" ColSpanXs="12" ColSpanMd="3">
+                            <DxCheckBox @bind-Checked="@person.SMSOptOut"
+                                    Alignment="CheckBoxContentAlignment.Left" />
+                        </DxFormLayoutItem>
+                    </DxFormLayoutGroup>
+                    <DxFormLayoutGroup Caption="In Case of Emergency">
+                        <DxFormLayoutItem Caption="Contact" ColSpanMd="12">
+                            <DxTextBox @bind-Text="@person.ICEContact" />
+                            <ValidationMessage For="@(() => person.ICEContact)" />
+                        </DxFormLayoutItem>
+                        <DxFormLayoutItem Caption="Phone" ColSpanMd="12">
+                            <DxTextBox @bind-Text="@person.ICEPhone" />
+                            <ValidationMessage For="@(() => person.ICEPhone)" />
+                        </DxFormLayoutItem>
+                    </DxFormLayoutGroup>
+
+                    @if (showCommunicationWarning) {
+                        <div class="text-center alert alert-danger col-12">
+                            A Post mail preference incurs an additional <strong>@surcharge</strong> postal surcharge per year.<br />
+                            Change to <strong>Email</strong> which is free, or<br />
+                            Click <strong>Save</strong> again to confirm your choice.
+                        </div>
+                    }
+                </div>
+            </DxFormLayout>
+            <footer class="row mx-2 mt-2">
+                <DxButton CssClass="col-6 col-md-4" IconCssClass="bi bi-save" SubmitFormOnClick="true" Text="Save" />
+                <DxButton CssClass="col-6 col-md-4" IconCssClass="bi bi-x-circle" SubmitFormOnClick="false" Text="Cancel" RenderStyle="@ButtonRenderStyle.Secondary" Click="@OnCancel" />
+            </footer>
+        </EditForm>
+    </div>
+}
+
+<style>
+    .scrollable {
+        height: 78vh;
+        overflow-y: auto;
+        overflow-x: hidden
+    }
+</style>
+
+
+@code {
+    [CascadingParameter]
+    LoginState loginState { get; set; }
+
+    [Parameter]
+    public EventCallback<PortalMenuResult> OnSelectedOptionCompleted { get; set; }
+
+    [Parameter, EditorRequired]
+    public bool IsNewLinkedMember { get; set; }
+
+    //Search fields
+    string FirstName;
+    string LastName;
+    string City;
+
+    bool IsReady = false;
+    Person person = new Person();
+    private AUState states;
+    private Gender gender;
+    Communication Communication;
+    string communicationPreference = "Email";
+    bool showCommunicationWarning = false;
+    bool isDatabaseCheckDone = false;
+    string? surcharge;
+    bool isNew = false;
+
+    List<string> AutoEnrolAllocationMethods;
+    int ActiveTabIndex { get; set; } = 0;
+    private SystemSettings systemSettings { get; set; }
+    U3ADbContext? dbc { get; set; }
+
+    internal ErrorPopup? ErrorPopup { get; set; }
+    internal string? ErrorHeader;
+    internal string? ErrorMessage;
+    MessageBox? messageBox;
+
+    protected override async Task OnInitializedAsync() {
+        // wire up the data
+        states = new AUState();
+        gender = new Gender();
+        Communication = new Communication();
+        showCommunicationWarning = false;
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+        systemSettings = await dbc.SystemSettings.FirstOrDefaultAsync();
+        surcharge = systemSettings.MailSurcharge.ToString("c2");
+        IsReady = true;
+        await base.OnInitializedAsync();
+    }
+
+    protected override async Task OnParametersSetAsync() {
+        person = await dbc.Person.FindAsync(loginState.SelectedPerson?.ID);
+        if (person == null || IsNewLinkedMember) {
+            person = new Person() {
+                    Email = loginState.LoginEmail,
+                    FinancialTo = constants.START_OF_TIME,
+                    DateJoined = DateTime.Today
+                };
+            isNew = true;
+        }
+        else isNew = false;
+        await base.OnParametersSetAsync();
+    }
+
+    async void ValidFormSubmitted(EditContext editContext) {
+        isNew = false;
+        var editModel = (Person)editContext.Model;
+        if (editModel.Communication != Communication[0] &&
+                !showCommunicationWarning &&
+                systemSettings.MailSurcharge > 0) {
+            showCommunicationWarning = true;
+            return;
+        }
+        // Re-query a data item from the store.
+        var dataItem = dbc.Person.Find(editModel.ID);
+        if (dataItem == null) {
+            dataItem = new Person();
+            isNew = true;
+        }
+        // Assign changes from the edit model to the data item.
+        if (dataItem != null) {
+            editModel.CopyTo(dataItem);
+            try {
+                // Post changes to the database.
+                if (isNew) await dbc.AddAsync(dataItem);
+                await dbc.SaveChangesAsync();
+                loginState.SelectedPerson = dataItem;
+                if (IsNewLinkedMember) {
+                    await messageBox.ShowOkOnlyAsync("Link Succeeded", "You must now re-login for the change to take affect.<br>" +
+                                                        "Click Ok to logout");
+                    loginState.SelectedPerson = null;
+                    await OnCancel();
+                }
+                else await ReturnToMenu(PortalMenuResult.MemberDetailsCompleted);
+            }
+            catch (Exception ex) {
+                ErrorHeader = "Save to database error";
+                ErrorMessage = Helpers.GetErrorMessage(ex);
+                await ErrorPopup.ShowPopupAsync();
+                dbc?.ChangeTracker?.Clear();
+            }
+        }
+    }
+
+    async Task ReturnToMenu(PortalMenuResult result) {
+        await OnSelectedOptionCompleted.InvokeAsync(result);
+    }
+
+    async Task OnSearch() {
+        if (string.IsNullOrWhiteSpace(FirstName) || string.IsNullOrWhiteSpace(LastName) || string.IsNullOrWhiteSpace(City)) {
+            await messageBox.ShowOkOnlyAsync("Complete all fields", "Enter the First Name, Last Name and City of the person to be linked.");
+            return;
+        }
+        var lastName = LastName.ToLower().Trim();
+        var firstName = FirstName.ToLower().Trim();
+        var city = City.ToLower().Trim();
+        if (dbc.Person.Any(x => x.LastName.ToLower().Trim() == lastName &&
+                                    x.FirstName.ToLower().Trim() == firstName &&
+                                    x.City.ToLower().Trim() == city)) {
+            await messageBox.ShowOkOnlyAsync("Already on file", "A person with First Name, Last Name and City already exists in our database.");
+        }
+        else {
+            person = new Person() {
+                    LastName = LastName,
+                    FirstName = FirstName,
+                    City = City,
+                    Email = loginState.LoginEmail,
+                    FinancialTo = constants.START_OF_TIME,
+                    DateJoined = DateTime.Today
+                };
+            isDatabaseCheckDone = true;
+            StateHasChanged();
+        }
+
+    }
+
+    async Task OnCancel() {
+        await ReturnToMenu(PortalMenuResult.MenuOptionCancelled);
+    }
+
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+
+}

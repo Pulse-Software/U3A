@@ -1,0 +1,64 @@
+﻿@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@inject NavigationManager NavMan
+@implements IDisposable
+
+<MessageBox @ref="@messageBox" />
+<div class="@cssClass" styel="height: auto">
+    <h3>@Year</h3>
+    <DxButton Text="Change Year" RenderStyle="ButtonRenderStyle.Primary" Click="OnChangeClick" CssClass="mb-1" />
+</div>
+
+@code {
+    string cssClass = "card text-center";
+
+    [Parameter, EditorRequired]
+    public EventCallback<int> OnYearChangedEvent { get; set; }
+    [Parameter]
+    public int Year { get; set; }
+    [Parameter]
+    public string CssClass { get { return CssClass; } set{ cssClass = $"{value} {cssClass}".Trim(); } }
+    Term currentTerm;
+    Term firstTermNextYear;
+    MessageBox? messageBox;
+    U3ADbContext dbc { get; set; }
+
+
+    protected override async Task OnInitializedAsync() {
+        await base.OnInitializedAsync();
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+        currentTerm = await BusinessRule.CurrentTermAsync(dbc);
+        if (currentTerm != null)
+        {
+            Year = currentTerm.Year;
+            firstTermNextYear = await BusinessRule.FirstTermNextYearAsync(dbc, currentTerm.Year);
+            if (firstTermNextYear != null 
+                && DateTime.Today >= firstTermNextYear.EnrolmentStartDate) Year = firstTermNextYear.Year;
+        }
+    }
+    protected override async Task OnAfterRenderAsync(bool firstRender) {
+        // wire up the toolbar
+        base.OnAfterRender(firstRender);
+        if (!firstRender) {
+            if (currentTerm == null) {
+                await messageBox.ShowOkOnlyAsync("Current Term is undefined", "Use <strong>Add/Edit Enrolment Terms</strong> to set the current term.");
+                NavMan.NavigateTo("/");
+            }
+        }
+    }
+
+    async Task OnChangeClick() {
+        if (Year == currentTerm.Year ) { Year++; } else { Year--; }
+        if (Year != currentTerm.Year) {
+            if (firstTermNextYear == null) {
+                await messageBox.ShowOkOnlyAsync("Year Cannot Be Changed", $"Use <strong>Add/Edit Enrolment Terms</strong> to create a terms in {Year}.");
+                Year--;
+            }
+        }
+        await OnYearChangedEvent.InvokeAsync(Year);
+    }
+
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+
+}

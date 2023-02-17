@@ -1,0 +1,80 @@
+﻿
+<DxPopup Visible="@popupVisible" @ref="@popup"
+         CloseButtonClick="@NegativeButtonClicked"
+         CloseOnEscape="false"
+         CloseOnOutsideClick="false"
+         ShowFooter="true"
+         HeaderText="Quick Enrolment">
+    <BodyTemplate Context="PopupContext">
+        <DxFormLayout CssClass="m-2">
+            <DxFormLayoutItem Caption="Participants" ColSpanMd="12">
+                <DxTagBox Data="@AvailablePersons"
+                          ListRenderMode="ListRenderMode.Virtual"
+                          TextFieldName="@nameof(Person.FullName)"
+                          NullText=" "
+                          @bind-Values="@SelectedPersons">
+                    <DxListEditorColumn FieldName="@nameof(Person.FullName)"
+                                        Caption="Name"
+                                        Width="50%" />
+                    <DxListEditorColumn FieldName="@nameof(Person.Mobile)"
+                                        Caption="Mobile"
+                                        Width="25%" />
+                    <DxListEditorColumn FieldName="@nameof(Person.Email)"
+                                        Caption="Email"
+                                        Width="25%" />
+                </DxTagBox>
+            </DxFormLayoutItem>
+            <DxFormLayoutItem Caption="Is Waitlisted?" ColSpanMd="12">
+                <DxCheckBox @bind-Checked="@IsWaitListed" Enabled=IsWaitListEnabled ></DxCheckBox>
+            </DxFormLayoutItem>
+        </DxFormLayout>
+    </BodyTemplate>
+    <FooterContentTemplate>
+        <DxButton CssClass="popup-button"
+                  RenderStyle="ButtonRenderStyle.Primary"
+                  Text="Enrol!"
+                  Click="@AffirmativeButtonClicked" />
+        <DxButton CssClass="popup-button"
+                  RenderStyle="ButtonRenderStyle.Secondary"
+                  Text="Cancel" Click="@NegativeButtonClicked" />
+    </FooterContentTemplate>
+</DxPopup>
+
+@code {
+
+    [Parameter]
+    public List<Person> AvailablePersons { get; set; }
+    [Parameter]
+    public IEnumerable<Person>? SelectedPersons { get; set; }
+    [Parameter]
+    public bool IsWaitListed { get; set; } = true;
+    [Parameter]
+    public bool IsWaitListEnabled { get; set; } = true;
+
+
+    bool popupVisible { get; set; }
+    DxPopup? popup;
+
+    TaskCompletionSource<bool>? tcs;
+
+    public Task<bool> ShowAsync() {
+        SelectedPersons = new List<Person>();
+        popupVisible = true;
+        tcs = new TaskCompletionSource<bool>();
+        tcs.Task.ContinueWith(_ => {
+            popupVisible = false;
+        });
+        StateHasChanged();
+        return tcs.Task;
+    }
+
+    void AffirmativeButtonClicked() {
+        popupVisible = false;
+        tcs?.SetResult(true);
+    }
+    void NegativeButtonClicked() {
+        popupVisible = false;
+        tcs?.SetResult(false);
+    }
+
+}

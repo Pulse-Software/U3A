@@ -1,0 +1,705 @@
+﻿@page "/ParticipantDataImport"
+
+@attribute [Authorize]
+@inject IJSRuntime js
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@implements IDisposable
+
+@using System
+@using System.IO
+@using Microsoft.AspNetCore.Hosting
+@using Microsoft.Extensions.Logging
+@using DevExpress.DataAccess.Excel
+@inject ILogger<ParticipantDataImport> Logger
+@inject IWebHostEnvironment Environment
+@inject NavigationManager NavigationManager
+
+@if (!IsReady) {
+    <p><em>Loading...</em></p>
+}
+else {
+
+    <MessageBox @ref="@messageBox" />
+    <Progress @ref="@ProgressBar" />
+    <ErrorPopup @ref="@ErrorPopup" PopupHeader="@ErrorHeader" PopupMessage="@ErrorMessage" />
+
+    <h3>Participant Data Import</h3>
+
+    <div class="container">
+        <div class="row">
+            <div class="col col-lg-6">
+                <div id="overviewDemoDropZone" class="card custom-drop-zone bg-light rounded-3 m-0" hidden="@(SelectedFilesCount > 0)">
+                    <span class="bi bi-upload icon-size mb-3"></span>
+                    <span>Drag and Drop <strong>CSV</strong> File Here</span><span class="m-1">or</span>
+                    <button id="overviewDemoSelectButton" class="btn border-primary btn-primary m-1">Select File</button>
+                </div>
+                <DxUpload Name="myFile" @ref="FileUploader"
+                      ExternalSelectButtonCssSelector="#overviewDemoSelectButton"
+                      ExternalDropZoneCssSelector="#overviewDemoDropZone"
+                      ExternalDropZoneDragOverCssClass="bg-light border-secondary text-dark"
+                      UploadUrl="@GetUploadUrl("api/Upload/UploadFile/")"
+                      AllowedFileExtensions="@(new List<string> { ".csv" })"
+                      FileUploaded="FileUploaded"
+                      SelectedFilesChanged="SelectedFilesChanged"
+                      AllowMultiFileUpload="false"
+                      MaxFileSize="15000000" CssClass="w-100">
+                </DxUpload>
+            </div> @*col*@
+
+            <div class="col-lg-1" />
+            <div class="col col-lg-5">
+                <div class="row">
+                    <YearComponent @ref="@yearComponent" OnYearChangedEvent="SelectedYearChanged" CssClass="col col-12" />
+                </div>
+                <div class="row">
+                    <div class="fs-6 text-center mb-2">@TermMessage</div>
+                </div>
+                <div class="row">
+                    <DxButton Text="Import Requests OK into the Database" CssClass="minor-button-width"
+                          Click="@ProcessRequests" Enabled="@(importData.Where(x => x.Status == "Ok").Any())"
+                          RenderStyle="ButtonRenderStyle.Primary" />
+                    <div class="minor-button-gap" />
+                    <DxButton Text="Delete Requests not OK" CssClass="minor-button-width"
+                          Click="@DeleteRequestsNotProcessed"
+                          Enabled="@(RequestsNotOk() > 0 && SelectedDataItems?.Count() > 0)"
+                          RenderStyle="ButtonRenderStyle.Primary" />
+                </div>
+                <div class="row mt-1">
+                    <DxButton Text="Clear All Data" CssClass="minor-button-width"
+                          Click="@ClearAllData" Enabled="@(importData.Any())"
+                          RenderStyle="ButtonRenderStyle.Primary" />
+                    <div class="minor-button-gap" />
+                    <DxButton Text="Set Duplicates as OK" CssClass="minor-button-width"
+                          Click="@SetDuplicatesAsOK" Enabled="@(RequestsNotOk() > 0 && SelectedDataItems?.Count() > 0)"
+                          RenderStyle="ButtonRenderStyle.Primary" />
+                </div>
+            </div>
+        </div> @*row*@
+
+        <GridToolbar @ref="Toolbar" LinkedGrid=@mainGrid />
+        <DxGrid Data="@importData" @ref=@mainGrid CssClass="grid-height"
+            CustomizeElement="Grid_CustomizeElement"
+            DetailRowDisplayMode="GridDetailRowDisplayMode.Always"
+            ColumnResizeMode="GridColumnResizeMode.ColumnsContainer"
+            @bind-SelectedDataItems="@SelectedDataItems"
+            AllowSelectRowByClick="false"
+            ShowFilterRow="false"
+            ShowAllRows="true"
+            KeyFieldName="ID"
+            ValidationEnabled="true"
+            PageSize="60"
+            PageSizeSelectorVisible="true"
+            PageSizeSelectorItems="@(new int[] {10,15, 20, 40,60,80, 100, 200,400 })"
+            PageSizeSelectorAllRowsItemVisible="true"
+            PagerSwitchToInputBoxButtonCount="10"
+            PagerVisibleNumericButtonCount="10"
+            PagerVisible="true"
+            PopupEditFormCssClass="popup-width"
+            EditMode="GridEditMode.PopupEditForm"
+            EditModelSaving="Grid_EditModelSaving"
+            PopupEditFormHeaderText="Add/Edit Participant"
+            DataItemDeleting="Grid_DataItemDeleting">
+            <Columns>
+                <DxGridSelectionColumn Visible="@(RequestsNotOk() > 0)" />
+                <DxGridCommandColumnEx Width="8rem" NewButtonVisible=false />
+                <DxGridDataColumn Caption="Status" FieldName="Status" Width="8rem"
+                              FilterRowOperatorType="GridFilterRowOperatorType.StartsWith" />
+                <DxGridDataColumn Caption="Is New?" FieldName="IsNewPerson" Width="5rem">
+                    <CellDisplayTemplate>
+                        <DxCheckBox Enabled="false" Checked="(bool)context.Value"
+                                Alignment="CheckBoxContentAlignment.Center" />
+                    </CellDisplayTemplate>
+                    <FilterRowCellTemplate>
+                        <DxCheckBox Checked="(bool?)context.FilterRowValue"
+                                CheckedChanged="(bool? v) => context.FilterRowValue = v"
+                                AllowIndeterminateStateByClick="true"
+                                Alignment="CheckBoxContentAlignment.Center" />
+                    </FilterRowCellTemplate>
+                </DxGridDataColumn>
+                <DxGridDataColumn Caption="Last Name" FieldName="LastName" Width="6rem" />
+                <DxGridDataColumn Caption="First Name" FieldName="FirstName" Width="6rem" />
+                <DxGridDataColumn Caption="Courses" FieldName="CourseRequests" Width="10rem" />
+                <DxGridDataColumn Caption="Street" FieldName="Address" Width="12rem" />
+                <DxGridDataColumn Caption="City" FieldName="City" Width="8rem" />
+                <DxGridDataColumn Caption="State" FieldName="State" Width="2rem" />
+                <DxGridDataColumn Caption="Postcode" FieldName="Postcode" DisplayFormat="{0:D}" Width="5rem" />
+                <DxGridDataColumn Caption="Email" FieldName="Email" Width="10rem" />
+                <DxGridDataColumn Caption="Phone" FieldName="HomePhone" Width="8rem" />
+                <DxGridDataColumn Caption="Mobile" FieldName="Mobile" Width="8rem" />
+                <DxGridDataColumn Caption="Communication" FieldName="Communication" Width="5rem" />
+                <DxGridDataColumn Caption="Gender" FieldName="Gender" Width="5rem" />
+                <DxGridDataColumn Caption="ICE Contact" FieldName="ICEContact" Width="10rem" />
+                <DxGridDataColumn Caption="ICE Phone" FieldName="ICEPhone" Width="8rem" />
+                <DxGridDataColumn Caption="Vax-Cert?" FieldName="VaxCertificateViewed"
+                              Visible="@settings.RequireVaxCertificate" Width="5rem">
+                    <CellDisplayTemplate>
+                        <DxCheckBox Enabled="false" Checked="(bool)context.Value" Alignment="CheckBoxContentAlignment.Center" />
+                    </CellDisplayTemplate>
+                    <FilterRowCellTemplate>
+                        <DxCheckBox Checked="(bool?)context.FilterRowValue"
+                                CheckedChanged="(bool? v) => context.FilterRowValue = v"
+                                AllowIndeterminateStateByClick="true"
+                                Alignment="CheckBoxContentAlignment.Center" />
+                    </FilterRowCellTemplate>
+                </DxGridDataColumn>
+                <DxGridDataColumn Caption="Occupation" FieldName="Occupation" Width="10rem" />
+                <DxGridDataColumn Caption="DOB" FieldName="BirthDate" Width="6rem">
+                    <FilterRowCellTemplate>
+                        <DxDateEdit Date="(DateTime?)context.FilterRowValue"
+                                DateChanged="(DateTime? v) => context.FilterRowValue = v" />
+                    </FilterRowCellTemplate>
+                </DxGridDataColumn>
+            </Columns>
+
+            <DetailRowTemplate>
+                @{
+                    var person = (PersonImport)context.DataItem;
+                    <text>@(new MarkupString(person.Issues))</text>
+                }
+            </DetailRowTemplate>
+
+            <EditFormTemplate Context="EditFormContext">
+                @{
+                    var editItem = (PersonImport)EditFormContext.EditModel;
+                }
+                <DxFormLayout>
+                    <DxFormLayoutItem>
+                        <ValidationSummary />
+                    </DxFormLayoutItem>
+                    <DxFormLayoutItem Caption="Is New Participant?" ColSpanMd="12">
+                        <DxCheckBox @bind-Checked="@editItem.IsNewPerson"
+                                Alignment="CheckBoxContentAlignment.Right" />
+                    </DxFormLayoutItem>
+                        <DxFormLayoutGroup Caption="Personal" ColSpanMd="6">
+                            <DxFormLayoutItem Caption="First Name" ColSpanMd="12">
+                                <DxTextBox @bind-Text="@editItem.FirstName" />
+                            </DxFormLayoutItem>
+                            <DxFormLayoutItem Caption="Last Name" ColSpanMd="12">
+                                <DxTextBox @bind-Text="@editItem.LastName" />
+                            </DxFormLayoutItem>
+                            <DxFormLayoutItem Caption="Gender" ColSpanMd="12">
+                                <DxComboBox Data="@gender" @bind-Value="@editItem.Gender" />
+                            </DxFormLayoutItem>
+                            <DxFormLayoutItem Caption="Birth Date" ColSpanMd="12">
+                                <DxDateEdit @bind-Date="@editItem.BirthDate" />
+                            </DxFormLayoutItem>
+                            <DxFormLayoutItem Caption="Occupation/Skill" ColSpanMd="12">
+                                <DxTextBox @bind-Text="@editItem.Occupation" />
+                            </DxFormLayoutItem>
+                        </DxFormLayoutGroup>
+                        <DxFormLayoutGroup Caption="Address" ColSpanMd="6">
+                            <DxFormLayoutItem Caption="Street" ColSpanMd="12">
+                                <DxTextBox @bind-Text="@editItem.Address" />
+                            </DxFormLayoutItem>
+                            <DxFormLayoutItem Caption="City" ColSpanMd="12">
+                                <DxTextBox @bind-Text="@editItem.City" />
+                            </DxFormLayoutItem>
+                            <DxFormLayoutItem Caption="State" ColSpanMd="6">
+                                <DxComboBox Data="@states" @bind-Value="@editItem.State" />
+                            </DxFormLayoutItem>
+                            <DxFormLayoutItem Caption="Postcode" ColSpanMd="6">
+                                <DxSpinEdit @bind-Value="@editItem.Postcode" />
+                            </DxFormLayoutItem>
+                            <DxFormLayoutItem Caption="Home Phone" ColSpanMd="6">
+                                <DxTextBox @bind-Text="@editItem.HomePhone" />
+                            </DxFormLayoutItem>
+                            <DxFormLayoutItem Caption="Mobile Phone" ColSpanMd="6">
+                                <DxTextBox @bind-Text="@editItem.Mobile" />
+                            </DxFormLayoutItem>
+                            <DxFormLayoutItem Caption="Email" ColSpanMd="12">
+                                <DxTextBox @bind-Text="@editItem.Email" />
+                            </DxFormLayoutItem>
+                        </DxFormLayoutGroup>
+                        <DxFormLayoutGroup Caption="In Case of Emergency" ColSpanMd="6">
+                            <DxFormLayoutItem Caption="Contact" ColSpanMd="12">
+                                <DxTextBox @bind-Text="@editItem.ICEContact" />
+                            </DxFormLayoutItem>
+                            <DxFormLayoutItem Caption="Phone" ColSpanMd="12">
+                                <DxTextBox @bind-Text="@editItem.ICEPhone" />
+                            </DxFormLayoutItem>
+                        </DxFormLayoutGroup>
+
+                        <DxFormLayoutGroup Caption="Membership" ColSpanMd="6">
+                            <DxFormLayoutItem Caption="Communication" ColSpanMd="12">
+                                <DxComboBox Data="@Communication" @bind-Value="@editItem.Communication" />
+                            </DxFormLayoutItem>
+                            <DxFormLayoutItem Caption="Vax Certificate?" ColSpanMd="12"
+                                          Visible="@settings.RequireVaxCertificate">
+                                <DxCheckBox @bind-Checked="@editItem.VaxCertificateViewed"
+                                        Alignment="CheckBoxContentAlignment.Right" />
+                            </DxFormLayoutItem>
+                        </DxFormLayoutGroup>
+                </DxFormLayout>
+            </EditFormTemplate>
+        </DxGrid>
+
+    </div>
+}
+<style>
+
+    .grid-height {
+        height: 50vh;
+    }
+
+    .minor-button-width {
+        width: 45%;
+    }
+    .minor-button-gap {
+        width: 10%;
+    }
+
+    .popup-width {
+        min-width: 65rem;
+    }
+
+    .icon-size {
+        font-size: 2rem;
+    }
+
+    .button-bar {
+        height: auto;
+    }
+
+    .custom-drop-zone {
+        padding: 0 !important;
+        border-style: dashed !important;
+        border-width: 2px !important;
+        height: auto;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .highlighted-item {
+        background-color: lightpink;
+        color: black;
+    }
+</style>
+
+@code {
+    bool IsReady;
+    U3ADbContext? dbc;
+    U3ADbContext? dbc1;
+    int SelectedFilesCount;
+    IEnumerable<UploadFileInfo> UploadedFiles;
+    List<PersonImport>? importData;
+    string UploadUrl;
+
+    DxUpload? FileUploader;
+    IGrid? mainGrid { get; set; }
+    ErrorPopup? ErrorPopup { get; set; }
+    GridToolbar? Toolbar;
+    Progress? ProgressBar;
+    MessageBox? messageBox;
+    string ErrorHeader;
+    string ErrorMessage;
+    SystemSettings settings;
+    Communication Communication;
+    private AUState states;
+    private Gender gender;
+    IReadOnlyList<object>? SelectedDataItems { get; set; }
+
+    YearComponent? yearComponent;
+    int ProcessingYear;
+    string TermMessage;
+    Term currentTerm;
+    Term FirstTermNextYear;
+    string FileProcessed;
+    DateTime TimeProcessed;
+
+    protected override async Task OnInitializedAsync() {
+        // wire up the data
+        IsReady = false;
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+        dbc1 = await U3Adbfactory.CreateDbContextAsync(); // avoid threading issues. refer https://go.microsoft.com/fwlink/?linkid=2097913.
+        await ImportPersonData();
+        settings = await dbc.SystemSettings.FirstOrDefaultAsync();
+        states = new AUState();
+        gender = new Gender();
+        Communication = new Communication();
+        currentTerm = await BusinessRule.CurrentTermAsync(dbc);
+        if (currentTerm != null) {
+            var year = currentTerm.Year;
+            FirstTermNextYear = await BusinessRule.FirstTermNextYearAsync(dbc, currentTerm.Year);
+            if (FirstTermNextYear != null
+                && DateTime.Today >= FirstTermNextYear.EnrolmentStartDate) year = FirstTermNextYear.Year;
+            await SelectedYearChanged(year);
+        }
+        IsReady = true;
+    }
+
+    protected override async void OnAfterRender(bool firstRender) {
+        // wire up the toolbar
+        base.OnAfterRender(firstRender);
+        if (Toolbar != null && mainGrid != null) { Toolbar.LinkedGrid = mainGrid; }
+    }
+
+    async Task SelectedYearChanged(int NewYear) {
+        ProcessingYear = NewYear;
+        if (ProcessingYear == currentTerm.Year) {
+            TermMessage = $"Courses will be imported to term: {currentTerm.Name}";
+        }
+        else {
+            TermMessage = $"Courses will be imported to new year: {ProcessingYear} as Waitlisted";
+        }
+    }
+
+    protected void SelectedFilesChanged(IEnumerable<UploadFileInfo> files) {
+        UploadedFiles = files;
+        SelectedFilesCount = files.ToList().Count;
+        InvokeAsync(StateHasChanged);
+    }
+
+    protected string GetUploadUrl(string url) {
+        return NavigationManager.ToAbsoluteUri(url).AbsoluteUri;
+    }
+
+    async void FileUploaded() {
+        int currentRecord = 0;
+        int errorCount = 0;
+        int lineNumber = 0;
+        string timestamp;
+        ParseCSVService? service = null;
+        PersonImport? personImport = null;
+        string response = string.Empty;
+        DateTime tempDate;
+        foreach (var fi in UploadedFiles) {
+            FileProcessed = fi.Name;
+            TimeProcessed = DateTime.Now;
+            var file = Path.Combine("uploads", fi.Name);
+            var records = CountLines(new FileInfo(file));
+            await ProgressBar.ShowAsync("Processing ... Please Wait", records);
+            using (var parser = new TextFieldParser(file)) {
+                parser.TextFieldType = FieldType.Delimited;
+                parser.SetDelimiters(new string[] { "," });
+                while (!parser.EndOfData) {
+                    string[]? row = parser.ReadFields();
+                    if (service == null) {
+                        service = new ParseCSVService(row);
+                    }
+                    else {
+                        lineNumber++;
+                        timestamp = (string)service.ParseField("Timestamp", row);
+                        if (dbc.PersonImport.Where(x => x.Timestamp.Trim() == timestamp.Trim()).Any()) break;
+                        personImport = new PersonImport();
+                        personImport.Filename = fi.Name;
+                        personImport.Linenumber = lineNumber;
+                        service.ParseModel(personImport, row);
+                        personImport.HomePhone = (string)service.ParseField("Phone", row);
+                        personImport.ICEContact = (string)service.ParseField("ICEName", row);
+                        personImport.Occupation = (string)service.ParseField("Your Previous Job(s)", row);
+                        response = (string)service.ParseField("COVID19", row);
+                        personImport.VaxCertificateViewed = (response.ToLower() == "yes") ? true : false;
+                        response = (string)service.ParseField("PostalMember", row);
+                        personImport.Communication = (response.ToLower() == "yes") ? "Post" : "Email";
+                        personImport.State = (dbc.TenantInfo as TenantInfoEx).State;
+                        personImport.IsNewPerson = (string.IsNullOrEmpty(personImport.CurrentStudentID)) ? true : false;
+                        if (await BusinessRule.FindPersonByImportDataID(dbc, timestamp) != null) personImport.IsNewPerson = false;
+                        await IsStatusOKAsync(personImport);
+                        await dbc.PersonImport.AddAsync(personImport);
+                        try {
+                            await dbc.SaveChangesAsync();
+                        }
+                        catch (Exception e) {
+                            errorCount++;
+                            dbc.Remove(personImport);
+                            string msg = (e.InnerException != null) ? e.InnerException.Message : e.Message;
+                            await CreateError(personImport, string.Empty, msg);
+                        }
+                        finally {
+                            currentRecord++;
+                            await ProgressBar.SetValueAsync(currentRecord);
+                        }
+                    }
+                }
+            }
+        }
+        await ProgressBar.ShowSpinnerAsync("Save to Database");
+        await ImportPersonData();
+        await ProgressBar.Close();
+        FileUploader.RemoveAllFiles();
+        SelectedFilesCount = 0;
+        await messageBox.ShowOkOnlyAsync("File import complete", $@"{currentRecord - errorCount} records added to the request queue.
+                        There were {errorCount} errors.
+                        <br/>Please review these requests and when satisfied, import them into the database.");
+        StateHasChanged();
+    }
+
+    async void ProcessRequests() {
+        int currentRecord = 0;
+        int personErrorCount = 0;
+        int courseErrorCount = 0;
+        await ProgressBar.ShowAsync("Processing ... Please Wait", importData.Where(x => x.Status == "Ok").Count());
+        foreach (PersonImport importItem in importData.Where(x => x.Status == "Ok")) {
+            Person person = BusinessRule.ConvertPersonImportToPerson(importItem);
+            // Post changes to the database.
+            var dataItem = importItem.IsNewPerson ? new Person() : await BusinessRule.DuplicatePersonAsync(dbc, person, importItem.CurrentStudentID);
+            dataItem = BusinessRule.ConvertPersonImportToPerson(dataItem, importItem);
+            if (dataItem.FinancialTo < constants.START_OF_TIME) dataItem.FinancialTo = constants.START_OF_TIME;
+            if (importItem.IsNewPerson) {
+                await dbc.AddAsync(dataItem);
+            }
+            courseErrorCount += await ProcessCourses(dataItem, importItem);
+            dbc.Remove(importItem);
+            try {
+                await BusinessRule.CreateEnrolmentSendMailAsync(dbc);
+                await dbc.SaveChangesAsync();
+            }
+            catch (Exception e) {
+                personErrorCount++;
+                dbc.Remove(dataItem);
+                string msg = (e.InnerException != null) ? e.InnerException.Message : e.Message;
+                await CreateError(importItem, string.Empty, msg);
+            }
+            finally {
+                currentRecord++;
+                await ProgressBar.SetValueAsync(currentRecord);
+            }
+        }
+        await ProgressBar.ShowSpinnerAsync("Save to Database");
+        // update the Grid.
+        await ImportPersonData();
+        await ProgressBar.Close();
+        await messageBox.ShowOkOnlyAsync("Database import complete",$@"{currentRecord - personErrorCount} requests have been saved to the database.
+                                                There were {personErrorCount + courseErrorCount} errors.<br/>
+                    Review the <strong>Import Data Error Report</strong> on the Reports menu for error details.");
+        SelectedDataItems = new List<object>();
+        StateHasChanged();
+    }
+
+    async Task<int> ProcessCourses(Person person, PersonImport importData) {
+        int errorCount = 0;
+        int courseNo;
+        Course? course;
+        Term term;
+        Enrolment enrolment;
+        string errorMsg = string.Empty;
+        string[] courses = importData.CourseRequests.Split(" ");
+        foreach (var str in courses) {
+            if (string.IsNullOrWhiteSpace(str)) break;
+            if (int.TryParse(str, out courseNo)) {
+                if (ProcessingYear == currentTerm.Year) term = currentTerm; else term = FirstTermNextYear;
+                if (!await BusinessRule.IsImportCourseOnFileAsync(dbc, person.ID, ProcessingYear, courseNo)) {
+                    course = await dbc.Course
+                                        .Include(x => x.Classes)
+                                        .Where(x => x.Year == term.Year && x.ConversionID == courseNo).FirstOrDefaultAsync();
+                    if (course != null) {
+                        if (!BusinessRule.IsCourseInTerm(course,term)) {
+                            errorCount++;
+                            errorMsg = $"[{course.Name}]: Cannot enrol because class is not held in Term {term.TermNumber}.";
+                            await CreateError(importData, str, errorMsg);
+                            continue;
+                        }
+                        if ((ParticipationType?)course.CourseParticipationTypeID == ParticipationType.SameParticipantsInAllClasses) {
+                            enrolment = new Enrolment() {
+                                    Course = course,
+                                    Created = DateTime.Now,
+                                    DateEnrolled = DateTime.Today,
+                                    Person = person,
+                                    Term = term,
+                                    IsWaitlisted = await BusinessRule.SetWaitlistStatusAsync(dbc, course.ID, currentTerm,person)
+                                };
+                            await dbc.AddAsync(enrolment);
+                        }
+                        else {
+                            errorCount++;
+                            errorMsg = $"[{course.Name}]: Cannot enrol because multiple classes have different participnats.";
+                            await CreateError(importData, str, errorMsg);
+                        }
+                    }
+                    else {
+                        errorCount++;
+                        errorMsg = $"Course {str} is not found in year {ProcessingYear}.";
+                        await CreateError(importData, str, errorMsg);
+                    }
+                }
+                else {
+                    //errorCount++;
+                    //errorMsg = $"This person is already enrolled in course [{str}].";
+                    //await CreateError(importData, str, errorMsg);
+                }
+            }
+            else {
+                errorCount++;
+                errorMsg = $"Course {str} is not a number.";
+                await CreateError(importData, str, errorMsg);
+            }
+        }
+        return errorCount;
+    }
+
+    int RequestsNotOk() { return importData.Where(x => x.Status != "Ok").Count(); }
+
+    async void DeleteRequestsNotProcessed() {
+        int currentRecord = 0;
+        await ProgressBar.ShowAsync("Deleting Requests ... Please Wait", RequestsNotOk());
+        foreach (PersonImport item in SelectedDataItems.Cast<PersonImport>().Where(x => x.Status != "Ok")) {
+            dbc.Remove(item);
+            currentRecord++;
+            await ProgressBar.SetValueAsync(currentRecord);
+        }
+        if (await SaveChangesAsync()) {
+            // update the Grid.
+            await ImportPersonData();
+            StateHasChanged();
+        }
+        mainGrid.SelectDataItems(SelectedDataItems, false);
+        await ProgressBar.Close();
+        await messageBox.ShowOkOnlyAsync("Deletion complete", $"{currentRecord} records deleted from the request queue.");
+    }
+
+    async void SetDuplicatesAsOK() {
+        int currentRecord = 0;
+        await ProgressBar.ShowAsync("Set Suspected Duplicates as OK ... Please Wait", RequestsNotOk());
+        foreach (PersonImport item in SelectedDataItems.Cast<PersonImport>().Where(x => x.Status != "Ok")) {
+            item.IsNewPerson = false;
+            item.Status = "Ok";
+            currentRecord++;
+            await ProgressBar.SetValueAsync(currentRecord);
+        }
+        if (await SaveChangesAsync()) {
+            // update the Grid.
+            await ImportPersonData();
+            StateHasChanged();
+        }
+        mainGrid.SelectDataItems(SelectedDataItems, false);
+        await ProgressBar.Close();
+        await messageBox.ShowOkOnlyAsync("Duplicate processing complete", $"{currentRecord} suspected duplicate records set OK in the request queue.");
+    }
+
+    public int CountLines(FileInfo file) => File.ReadLines(file.FullName).Count();
+
+    bool isImporting = false;
+    async Task ImportPersonData() {
+        if (isImporting) { return; }
+        isImporting = true;
+        if (mainGrid != null) mainGrid.BeginUpdate();
+        importData = await dbc.PersonImport.
+                    OrderBy(x => x.LastName).ThenBy(x => x.FirstName).ThenBy(x => x.IsNewPerson).ToListAsync();
+        foreach (var data in importData) {
+            await IsStatusOKAsync(data);
+            data.Issues = string.Empty;
+            if (!BusinessRule.IsValidEmailAddress(data.Email))
+                data.Issues += $@"Email Address: <strong>{data.Email}</strong> is probably invlaid.<br/>";
+            if (!BusinessRule.IsValidAUMobileNumber(data.Mobile))
+                data.Issues += $@"Mobile: {data.Mobile} is probably an invlaid mobile number.<br/>";
+            if (!BusinessRule.IsValidAUPhoneNumber(data.HomePhone))
+                data.Issues += $@"Home Phone: {data.HomePhone} is probably an invlaid phone number.<br/>";
+            if (!BusinessRule.IsValidAUPhoneNumber(data.ICEPhone))
+                data.Issues += $@"ICE Phone: {data.ICEPhone} is probably an invlaid phone number.<br/>";
+        }
+        if (mainGrid != null) mainGrid.EndUpdate();
+        isImporting = false;
+    }
+
+    bool isSaving = false;
+    async Task Grid_EditModelSaving(GridEditModelSavingEventArgs e) {
+        if (isSaving) { return; }
+        isSaving = true;
+        var editModel = (PersonImport)e.EditModel;
+        // Re-query a data item from the store.
+        var dataItem = e.IsNew ? new PersonImport() : dbc.PersonImport.Find(editModel.ID);
+        // Assign changes from the edit model to the data item.
+        if (dataItem != null) {
+            editModel.CopyTo(dataItem);
+            await IsStatusOKAsync(dataItem);
+            // Post changes to the database.
+            if (e.IsNew) await dbc.AddAsync(dataItem);
+            if (await SaveChangesAsync()) {
+                // update the Grid.
+                await ImportPersonData();
+            }
+        }
+        isSaving = false;
+    }
+
+    async Task Grid_DataItemDeleting(GridDataItemDeletingEventArgs e) {
+        PersonImport PersonImport = (PersonImport)e.DataItem;
+        dbc.Remove(PersonImport);
+        await SaveChangesAsync();
+        await ImportPersonData();
+    }
+
+    async Task<bool> SaveChangesAsync() {
+        bool result = false;
+        try {
+            // Post changes to the database.
+            await dbc.SaveChangesAsync();
+            result = true;
+        }
+        catch (Exception ex) {
+            ErrorHeader = "Save to database error";
+            ErrorMessage = Helpers.GetErrorMessage(ex);
+            await ErrorPopup.ShowPopupAsync();
+            dbc?.ChangeTracker?.Clear();
+        }
+        return result;
+    }
+
+    void Grid_CustomizeElement(GridCustomizeElementEventArgs e) {
+        if (e.ElementType == GridElementType.DataRow) {
+            PersonImport model = (PersonImport)e.Grid.GetDataItem(e.VisibleIndex);
+            if (model.Status != "Ok") { e.CssClass = "highlighted-item"; }
+        }
+        if (e.ElementType == GridElementType.DetailCell) {
+            e.Style = "padding: 0 4rem; opacity: 0.75";
+        }
+    }
+
+    async Task<bool> IsStatusOKAsync(PersonImport model) {
+        bool result = false;
+        Person? duplicate;
+        if (model != null) {
+            Person person = BusinessRule.ConvertPersonImportToPerson(model);
+            duplicate = await BusinessRule.DuplicatePersonAsync(dbc1, person, model.CurrentStudentID);
+            model.Status = "Ok";
+            result = true;
+            if (model.IsNewPerson) {
+                if (duplicate != null) {
+                    model.Status = "Duplicate?";
+                    result = false;
+                }
+            }
+            else {
+                if (duplicate == null) {
+                    model.Status = "Not Found";
+                    result = false;
+                }
+            }
+        }
+        return result;
+    }
+
+        async Task ClearAllData() {
+        if (await messageBox.ShowAsync("Clear All Import Data",@"<p>This procedure will remove all participant import data from the grid.<br/>
+                    It is intended to be used if you have imported the same import file twice.</p>
+                    <p>Do you wish to continue?</p>")) {
+            dbc.ChangeTracker.AcceptAllChanges();
+            dbc.RemoveRange(await dbc.PersonImport.ToListAsync());
+            await dbc.SaveChangesAsync();
+            await ImportPersonData();
+        }
+    }
+
+
+    async Task CreateError(PersonImport ImportData, string? course, string error) {
+        var err = new PersonImportError() {
+                Filename = ImportData.Filename,
+                LineNumber = ImportData.Linenumber,
+                Course = course,
+                Error = error,
+                ImportDate = TimeProcessed,
+            };
+        err.FirstName = (string.IsNullOrWhiteSpace(ImportData.FirstName)) ? "*** Unknown ***" : ImportData.FirstName;
+        err.LastName = (string.IsNullOrWhiteSpace(ImportData.LastName)) ? "*** Unknown ***" : ImportData.LastName;
+        await dbc.AddAsync(err);
+        dbc.Entry(ImportData).State = EntityState.Unchanged;
+        await dbc.SaveChangesAsync();
+    }
+
+    public void Dispose() {
+        dbc?.Dispose();
+        dbc1?.Dispose();
+    }
+}

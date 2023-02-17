@@ -1,0 +1,400 @@
+﻿@page "/CancelClassMnt"
+
+@inject IJSRuntime js
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@implements IDisposable
+
+
+@attribute [Authorize]
+
+@if (!IsReady) {
+    <p><em>Loading...</em></p>
+}
+else {
+
+    <MessageBox @ref="@messageBox" />
+
+    <ErrorPopup @ref="@ErrorPopup" PopupHeader="@ErrorHeader" PopupMessage="@ErrorMessage" />
+
+    <div class="row align-content-start">
+        <div class="col col-6  d-none d-md-inline">
+            <h3>Current Cancellations</h3>
+        </div>
+        <div class="col col-6">
+            <h3>Cancel Class</h3>
+        </div>
+    </div>
+    <div class="row">
+        <div class="col col-lg-6 d-none d-lg-inline">
+            <p>Current cancellations for the selected term. Click a cancellation to edit it.</p>
+        </div>
+        <div class="d-none col-lg-5 d-lg-inline">
+            Cancel a class for one or a range of dates.
+        </div>
+        <DxButton Text="Communicate"
+              Click="@OnCommunicate"
+              RenderStyle="ButtonRenderStyle.Primary" CssClass="col col-lg-1" />
+    </div>
+
+    <SelectDocumentTemplatePopup @ref="@selectDocumentTemplatePopup" dbContext="@dbc"
+                             DocumentTemplates="@DocumentTemplates" SendTo="@SendTo" />
+    <Progress @ref="@ProgressBar" />
+
+    <DxFormLayout>
+        <div class="row">
+            <div class="col col-6  d-none d-md-inline">
+                <DxFormLayoutGroup Caption="Term Summary">
+                    <DxGrid @ref="displayGrid" Data="@CancellationsThisTerm" CssClass="display-grid-height"
+                        ColumnResizeMode="GridColumnResizeMode.ColumnsContainer"
+                        ShowFilterRow="false"
+                        ShowAllRows="true"
+                        AutoExpandAllGroupRows="true"
+                        KeyFieldName="ID"
+                        AllowSelectRowByClick="true"
+                        SelectionMode="GridSelectionMode.Single"
+                        SelectedDataItemChanged="DisplayGrid_SelectedDataItemChanged"
+                        ValidationEnabled="false">
+                        <Columns>
+                            <DxGridDataColumn Caption="Course" FieldName="Class.Course.Name" GroupIndex="0" />
+                            <DxGridDataColumn Caption="Class" FieldName="Class.ClassSummary" GroupIndex="1" />
+                            <DxGridDataColumn Width="6rem" Caption="Start Date" FieldName="StartDate" />
+                            <DxGridDataColumn Width="6rem" Caption="End Date" FieldName="EndDate" />
+                            <DxGridDataColumn Caption="Reason" FieldName="Reason" />
+                        </Columns>
+                    </DxGrid>
+                </DxFormLayoutGroup>
+            </div>
+
+            <div class="col col-12 col-md-6">
+                <DxFormLayoutGroup Caption="Cancellation Details">
+                    <DxFormLayoutItem Caption="Term" ColSpanMd="12">
+                        <DxComboBox Data="@terms" NullText="Select the Term required..."
+                                FilteringMode="DataGridFilteringMode.Contains"
+                                TextFieldName="@nameof(Term.TermSummary)"
+                                Value="@selectedTerm"
+                                ValueChanged="@((Term term) => SelectedTermChanged(term))" />
+                    </DxFormLayoutItem>
+                    <DxFormLayoutItem Caption="Course" ColSpanMd="12">
+                        <DxComboBox Data="@courses"
+                                Enabled="@courseComboEnabled"
+                                NullText="Select the Course required..."
+                                FilteringMode="DataGridFilteringMode.Contains"
+                                ListRenderMode="ListRenderMode.Virtual"
+                                TextFieldName="@nameof(Course.Name)"
+                                Value="@selectedCourse"
+                                ValueChanged="@((Course course) => SelectedCourseChanged(course))">
+                        </DxComboBox>
+                    </DxFormLayoutItem>
+                    <DxFormLayoutItem Caption="Class To Cancel" ColSpanMd="12">
+                        <DxComboBox @ref="@ClassComboBox" Data="@classes" Enabled="@classComboEnabled" NullText="Select the Class required..."
+                                TextFieldName="@nameof(Class.ClassSummary)"
+                                Value="@selectedClass"
+                                ValueChanged="@((Class selectedClass) => SelectedClassChanged(selectedClass))" />
+                    </DxFormLayoutItem>
+
+                    @quickMessage
+
+                    <DxGrid @ref="mainGrid" Data="@Cancellations" CssClass="main-grid-height"
+                        ShowFilterRow="false"
+                        ShowAllRows="true"
+                        KeyFieldName="ID"
+                        ValidationEnabled="true"
+                        SelectionMode="GridSelectionMode.Multiple"
+                        AllowSelectRowByClick="true"
+                        @bind-SelectedDataItems="SelectedDataItems"
+                        CustomizeEditModel="Grid_CustomizeEditModel"
+                        EditMode="GridEditMode.PopupEditForm"
+                        DataItemDeleting="Grid_DataItemDeleting"
+                        EditModelSaving="Grid_EditModelSaving">
+                        <Columns>
+                            <DxGridSelectionColumn Width="2rem" />
+                            <DxGridCommandColumnEx @ref="GridCommandColumn" Width="8rem"
+                                             EditButtonVisible="true" DeleteButtonVisible="true" NewButtonVisible="true" />
+                            <DxGridDataColumn Width="6rem" Caption="Start Date" FieldName="StartDate" />
+                            <DxGridDataColumn Width="6rem" Caption="End Date" FieldName="EndDate" />
+                            <DxGridDataColumn Caption="Reason" FieldName="Reason" />
+                        </Columns>
+
+                        <EditFormTemplate Context="EditFormContext">
+                            @{
+                                var editItem = (CancelClass)EditFormContext.EditModel;
+                            }
+                            <DxFormLayout>
+                                <DxFormLayoutItem ColSpanMd="12">
+                                    <ValidationSummary />
+                                </DxFormLayoutItem>
+                                <DxFormLayoutItem Caption="Start Date" ColSpanMd="12">
+                                    <DxDateEdit @bind-Date="@editItem.StartDate" />
+                                </DxFormLayoutItem>
+                                <DxFormLayoutItem Caption="End Date" ColSpanMd="12">
+                                    <DxDateEdit @bind-Date="@editItem.EndDate" />
+                                </DxFormLayoutItem>
+                                <DxFormLayoutItem Caption="Reason" ColSpanMd="12">
+                                    <DxTextBox @bind-Text="@editItem.Reason" />
+                                </DxFormLayoutItem>
+                            </DxFormLayout>
+                        </EditFormTemplate>
+                    </DxGrid>
+
+                </DxFormLayoutGroup>
+            </div>
+        </div>
+    </DxFormLayout>
+
+}
+<style>
+
+    .main-grid-height {
+        height: 56vh;
+    }
+
+    .display-grid-height {
+        height: 65vh;
+    }
+
+</style>
+
+
+@code {
+    bool IsReady;
+    private List<CancelClass>? Cancellations { get; set; }
+    private List<CancelClass>? CancellationsThisTerm { get; set; }
+
+    private List<Term>? terms { get; set; }
+    private Term? selectedTerm { get; set; }
+
+    private List<Course>? courses { get; set; }
+    private Course? selectedCourse { get; set; }
+
+    private List<Class>? classes { get; set; }
+    private Class? selectedClass { get; set; }
+
+    string? HeaderContent;
+    string? MessageContent;
+    MessageBox? messageBox { get; set; }
+    bool MessageBoxShowCancelButton;
+    MarkupString quickMessage;
+
+    private bool classComboEnabled;
+    private bool courseComboEnabled;
+
+
+    private DxGridCommandColumnEx? GridCommandColumn;
+    private DxComboBox<Class, Class?> ClassComboBox;
+
+    int MinimumParticipants;
+    int MaximumParticipants;
+    int EnrolledParticipants;
+    int WaitlistedParticipants;
+    string ClassStatus = "Status: N/A";
+    ButtonRenderStyle buttonRenderStyle = ButtonRenderStyle.Light;
+
+    IGrid? mainGrid { get; set; }
+    IGrid? displayGrid { get; set; }
+    IReadOnlyList<object>? SelectedDataItems { get; set; }
+    string? gridHeight { get; set; }
+    ErrorPopup? ErrorPopup { get; set; }
+    GridToolbar? Toolbar;
+    string? ErrorHeader;
+    string? ErrorMessage;
+    U3ADbContext? dbc { get; set; }
+
+    Communication Communication;
+    private List<Person> SendTo { get; set; }
+    private List<DocumentTemplate> DocumentTemplates;
+    private SelectDocumentTemplatePopup selectDocumentTemplatePopup;
+    DocumentServer server;
+    int documentsSent;
+    internal Progress? ProgressBar;
+
+    protected override async Task OnInitializedAsync() {
+        // wire up the data
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+
+        Communication = new Communication();
+        DocumentTemplates = await BusinessRule.SelectableDocumentTemplatesAsync(dbc);
+        server = new DocumentServer(dbc);
+        server.DocumentSentEvent += Server_DocumentSent;
+
+        terms = await BusinessRule.SelectableRelaxedTermsAsync(dbc);
+        selectedTerm = await BusinessRule.CurrentTermAsync(dbc);
+        courseComboEnabled = false;
+        if (selectedTerm != null) { await SelectedTermChanged(selectedTerm); }
+        IsReady = true;
+    }
+
+    async Task SelectedTermChanged(Term term) {
+        ClearSelection();
+        selectedTerm = term;
+        selectedCourse = null;
+        selectedClass = null;
+        classComboEnabled = false;
+        courseComboEnabled = false;
+        if (Cancellations != null) { Cancellations.Clear(); }
+        StateHasChanged();
+        courses = await BusinessRule.SelectableCoursesByTermAsync(dbc,term.Year, term.TermNumber);
+        await GetCancellationsForTermAsync();
+        courseComboEnabled = true;
+        StateHasChanged();
+    }
+
+    async Task SelectedCourseChanged(Course course) {
+        selectedCourse = course;
+        classes = selectedCourse.Classes;
+        if (Cancellations != null) { Cancellations.Clear(); }
+        SetupClassToEnrol();
+        await SetupGrid();
+    }
+
+    async Task SelectedClassChanged(Class Class) {
+        selectedClass = Class;
+        await SetupGrid();
+    }
+
+    async Task SetupGrid() {
+        mainGrid?.BeginUpdate();
+        ClearSelection();
+        GridCommandColumn.Visible = false;
+        if (selectedCourse != null && selectedClass != null) {
+            GridCommandColumn.Visible = true;
+            await GetCancellations();
+        }
+        mainGrid?.EndUpdate();
+        StateHasChanged();
+    }
+
+    void ClearSelection() {
+        SendTo = null;
+        SelectedDataItems = null;
+    }
+
+    async Task GetCancellationsForTermAsync() {
+        CancellationsThisTerm = await BusinessRule.CancelledClassForTermAsync(dbc, selectedTerm);
+    }
+    async Task GetCancellations() {
+        Cancellations = await BusinessRule.EditableCancelClassAsync(dbc, selectedTerm, selectedClass);
+    }
+
+    void SetupClassToEnrol() {
+        selectedClass = null;
+        classComboEnabled = true;
+        if (selectedCourse?.Classes.Count >= 1) {
+            selectedClass = classes?[0];
+        }
+    }
+
+    async Task Grid_EditModelSaving(GridEditModelSavingEventArgs e) {
+        quickMessage = (MarkupString)string.Empty;
+        var editModel = (CancelClass)e.EditModel;
+        if (!await IsDataOk(editModel)) {
+            e.Cancel = true; return;
+        }
+        // Re-query a data item from the store.
+        var dataItem = e.IsNew ? new CancelClass() : dbc.CancelClass.Find(editModel.ID);
+        // Assign changes from the edit model to the data item.
+        if (dataItem != null) {
+            editModel.CopyTo(dataItem);
+            if (selectedClass != null) { dataItem.Class = dbc.Class.Find(selectedClass.ID); }
+            // Post changes to the database.
+            if (e.IsNew) await dbc.AddAsync(dataItem);
+            if (await SaveChangesAsync()) {
+                // update the Grid.
+                if (e.IsNew) {
+                    Cancellations?.Insert(0, dataItem);
+                }
+                else {
+                    int idx = Cancellations.FindIndex(x => x.ID == dataItem.ID);
+                    Cancellations[idx] = dataItem;
+                }
+                await GetCancellationsForTermAsync();
+                await SetupGrid();
+            }
+            else { e.Cancel = true; }
+        }
+    }
+    async Task<bool> IsDataOk(CancelClass editItem) {
+        bool result = true;
+        if (editItem.StartDate > editItem.EndDate) {
+            await messageBox.ShowOkOnlyAsync("Invalid Dates", "Start Date must be equal to or earlier than End Date.");
+            result = false;
+        }
+        return result;
+    }
+
+    async Task Grid_DataItemDeleting(GridDataItemDeletingEventArgs e) {
+        dbc?.Remove<CancelClass>((CancelClass)e.DataItem);
+        await SaveChangesAsync();
+        mainGrid?.ClearSelection();
+        await GetCancellationsForTermAsync();
+        await SetupGrid();
+    }
+
+    async Task<bool> SaveChangesAsync() {
+        bool result = false;
+        try {
+            // Post changes to the database.
+            await dbc.SaveChangesAsync();
+            result = true;
+        }
+        catch (Exception ex) {
+            ErrorHeader = "Save to database error";
+            ErrorMessage = Helpers.GetErrorMessage(ex);
+            await ErrorPopup.ShowPopupAsync();
+            dbc?.ChangeTracker.Clear();
+        }
+        return result;
+    }
+
+    void Grid_CustomizeEditModel(GridCustomizeEditModelEventArgs e) {
+        if (e.IsNew) {
+            var editModel = (CancelClass)e.EditModel;
+            editModel.StartDate = DateTime.Today;
+            if (selectedTerm?.StartDate > DateTime.Today) {
+                editModel.StartDate = selectedTerm.StartDate;
+            }
+            else { editModel.StartDate = DateTime.Today; }
+            editModel.EndDate = editModel.StartDate;
+        }
+    }
+
+    async Task DisplayGrid_SelectedDataItemChanged(object newSelection) {
+        if (newSelection != null) {
+            selectedCourse = (newSelection as CancelClass).Class.Course;
+            selectedClass = (newSelection as CancelClass).Class;
+            await SetupGrid();
+            await mainGrid.StartEditDataItemAsync(newSelection);
+        }
+    }
+
+    async Task OnCommunicate() {
+
+        if (SelectedDataItems == null || SelectedDataItems.Count <= 0) {
+            await messageBox.ShowOkOnlyAsync("Make a Selection", "Select one or more participants to communicate with.");
+            return;
+        }
+        SendTo = new List<Person>();
+        foreach (var e in SelectedDataItems.Cast<CancelClass>().ToList()) {
+            SendTo.AddRange(await BusinessRule.GetPersonsInClassAsync(dbc,e.ClassID));
+        };
+        if (await selectDocumentTemplatePopup.ShowAsync()) {
+            documentsSent = 0;
+            await ProgressBar.ShowAsync("Sending ... Please Wait", SelectedDataItems.Count);
+            List<ExportData> exportData = await BusinessRule.GetExportDataAsync(dbc, SendTo);
+            bool overridePreference = selectDocumentTemplatePopup.OverrideCommunicationPreference;
+            await server.MailMerge(dbc, selectDocumentTemplatePopup.SelectedDocumentTemplate, exportData, overridePreference);
+            await ProgressBar.Close();
+            await messageBox.ShowOkOnlyAsync("Communication Complete", server.GetHTMLResult());
+        }
+    }
+
+    async void Server_DocumentSent(object sender, DocumentSentEventArgs e) {
+        documentsSent += e.DocumentsSent;
+        await ProgressBar.SetValueAsync(documentsSent);
+    }
+
+
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+
+}

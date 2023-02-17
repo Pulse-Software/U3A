@@ -1,0 +1,184 @@
+﻿@page "/CourseSchedule"
+
+@namespace U3A.UI.Forms
+
+@using U3A.Model
+@using System.Text.Json
+@using System.Text.Json.Nodes
+@inject IJSRuntime js
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@implements IDisposable
+
+
+@attribute [Authorize]
+
+@if (!IsReady) {
+    <p><em>Loading...</em></p>
+}
+else {
+
+    
+    if (!IsPortal) {
+        <div class="row  align-content-start">
+            <div class="col-4"><h3>Course Schedule</h3></div>
+            <div class="col-7">
+                <DxFormLayout>
+                    <DxFormLayoutItem Caption="Filter By Venue" ColSpanMd="12">
+                        <DxTagBox Data="@AvailableVenues"
+                          TextFieldName="@nameof(Venue.Name)"
+                          NullText="Optionally filter by one or more venue locations."
+                          @bind-Values="@VenuesToFilter">
+                        </DxTagBox>
+                    </DxFormLayoutItem>
+                </DxFormLayout>
+            </div>
+            <div class="col-1" />
+        </div>
+        <div class="row">
+            <div class="col-4 align-content-start">
+                <div class="col d-none d-md-inline">Review your Course and Class schedule.</div>
+            </div>
+            <div class="col-7">
+                <DxFormLayout>
+                    <DxFormLayoutItem Caption="Enrolment Term" ColSpanMd="12">
+                        <DxComboBox Data="@terms" NullText="Select the Term required..."
+                            FilteringMode="DataGridFilteringMode.Contains"
+                            TextFieldName="@nameof(Term.TermSummary)"
+                            Value="@selectedTerm"
+                            ValueChanged="@((Term term) => SelectedTermChanged(term))" />
+                    </DxFormLayoutItem>
+                </DxFormLayout>
+            </div>
+            <div class="col-1">
+                <DxButton RenderStyle="ButtonRenderStyle.Primary"
+                  RenderStyleMode="ButtonRenderStyleMode.Contained" Click="@ProcessButtonClicked">
+                    <span style="visibility: @SpinnerVisibility"
+                  class="spinner-border spinner-border-sm" role="status" />&nbsp;@ProcessButtonText
+                </DxButton>
+            </div>
+        </div>
+        <br />
+    }
+    <div class="schedule-height">
+        <DxScheduler StartDate="@StartDate"
+                 AllowCreateAppointment="false"
+                 AllowDeleteAppointment="false"
+                 AllowEditAppointment="false"
+                 ShowAppointmentTooltip="true"
+                 ActiveViewType=@((IsPortal)
+                 ? SchedulerViewType.Day
+                 : SchedulerViewType.WorkWeek)
+                 DataStorage="@DataStorage"
+                 CssClass="w-100">
+            <Views>
+                <DxSchedulerDayView DayCount="1" ShowWorkTimeOnly="true" WorkTime="@VisibleTime"></DxSchedulerDayView>
+                @if (!IsPortal)
+                {
+                    <DxSchedulerWeekView ShowWorkTimeOnly="true" WorkTime="@VisibleTime"></DxSchedulerWeekView>
+                    <DxSchedulerWorkWeekView ShowWorkTimeOnly="true" WorkTime="@VisibleTime"></DxSchedulerWorkWeekView>
+                    <DxSchedulerMonthView ShowWorkDaysOnly="true" MonthCount="1"></DxSchedulerMonthView>
+                    <DxSchedulerTimelineView Duration="@TimeSpan.FromDays(14)" CellMinWidth="80">
+                        <Scales>
+                        <DxSchedulerTimeScale Unit="@SchedulerTimeScaleUnit.Day" UnitCount="1"></DxSchedulerTimeScale>
+                        <DxSchedulerTimeScale Unit="@SchedulerTimeScaleUnit.Hour" UnitCount="2"></DxSchedulerTimeScale>
+                    </Scales>
+                </DxSchedulerTimelineView>
+                }
+            </Views>
+            <AppointmentTooltipTemplate>
+                <div class="container">
+                    <span style="vertical-align: middle;">
+                        <strong>Subject:</strong>  @context.Appointment.Subject<br />
+                        <strong>Leader:</strong>  @context.Appointment.Description<br />
+                        <strong>Location:</strong>  @context.Appointment.Location<br />
+                        <strong>From:</strong>  @context.Appointment.Start.ToString("hh:mm tt") <strong>To:</strong>
+                        @context.Appointment.End.ToString("hh:mm tt")<br />
+                        <strong>Status:</strong>  @context.Label?.Caption<br />
+                    </span>
+                </div>
+            </AppointmentTooltipTemplate>
+        </DxScheduler>
+    </div>
+}
+
+<style>
+    .schedule-height {
+        overflow: auto;
+        height: @((IsPortal) ? "80vh" : "");
+    }
+
+</style>
+
+@code {
+
+    [Parameter]
+    public bool IsPortal { get; set; }
+
+    bool IsReady;
+    public List<Venue>? AvailableVenues { get; set; }
+    public IEnumerable<Venue>? VenuesToFilter { get; set; }
+    LocalTime localTime;
+
+    private List<Term> terms { get; set; }
+    private Term? selectedTerm { get; set; }
+    DateTime StartDate { get; set; }
+    U3ADbContext dbc { get; set; }
+
+    string SpinnerVisibility = "hidden";
+    string ProcessButtonText = "Process";
+
+    DxSchedulerTimeSpanRange VisibleTime = new DxSchedulerTimeSpanRange(TimeSpan.FromHours(6), TimeSpan.FromHours(22));
+
+    DxSchedulerDataStorage? DataStorage;
+
+    protected override async Task OnInitializedAsync() {
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+        terms = await BusinessRule.SelectableRelaxedTermsAsync(dbc);
+        AvailableVenues = await BusinessRule.SelectableVenuesAsync(dbc);
+        selectedTerm = await BusinessRule.CurrentTermAsync(dbc);
+        if (selectedTerm != null) {
+            SelectedTermChanged(selectedTerm);
+            if (IsPortal && DataStorage == null && selectedTerm != null) {
+                await ProcessButtonClicked();
+            }
+        }
+        IsReady = true;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender) {
+        await base.OnAfterRenderAsync(firstRender);
+        if (firstRender) {
+            localTime = new LocalTime(js);
+            StartDate = (await localTime.GetLocalTimeAsync()).Date;
+        }
+    }
+
+    async Task SelectedTermChanged(Term term) {
+        selectedTerm = term;
+        var now = (await localTime.GetLocalTimeAsync()).Date;
+        if (now > term.StartDate && now <= term.EndDate) {
+            StartDate = now;
+        }
+        else { StartDate = term.StartDate; }
+    }
+
+    async Task ProcessButtonClicked() {
+        if (!IsPortal) {
+            ProcessButtonText = "Loading...";
+            SpinnerVisibility = "visible";
+        }
+        if (selectedTerm != null) {
+            if (VenuesToFilter == null) { VenuesToFilter = new List<Venue>(); }
+            DataStorage = await BusinessRule.GetCourseScheduleDataStorageAsync(dbc, selectedTerm, VenuesToFilter);
+        }
+        if (!IsPortal) {
+            ProcessButtonText = "Process";
+            SpinnerVisibility = "hidden";
+        }
+    }
+
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+
+}

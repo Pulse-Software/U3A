@@ -1,0 +1,115 @@
+﻿@inject IJSRuntime js
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@inject NavigationManager NavigationManager
+
+@attribute [Authorize]
+
+<MessageBox @ref="@messageBox" />
+
+<DxFormLayout>
+    <DxFormLayoutGroup Caption="Select person to unlink">
+        <DxListBox Data="loginState.LinkedPeopleNotLoggedIn" CssClass="mb-2"
+                   ShowCheckboxes="true"
+                   SelectionMode="ListBoxSelectionMode.Single"
+                   Values="@SelectedPeople"
+                   ValuesChanged="@((IEnumerable<Person> values) => SelectedPersonChanged(values))">
+            <DxListEditorColumn FieldName="@nameof(Person.FirstName)"
+                                Caption="First Name" />
+            <DxListEditorColumn FieldName="@nameof(Person.LastName)"
+                                Caption="Last Name" />
+            <DxListEditorColumn FieldName="@nameof(Person.PersonIdentity)"
+                                Caption="Identity" />
+        </DxListBox>
+        <div hidden="@(selectedPerson == null)">
+            <div class="alert alert-info text-center">
+                You are about to unlink <strong>@selectedPerson?.FullName</strong> from your login.<br />
+                This means your email address will be removed from @selectedPerson?.FirstName's record.<br />
+                Enter below @selectedPerson?.FirstName's email address, or leave blank if they wish to receive mail by post.<br />
+                @mailSurchargeWarning
+            </div>
+            <DxFormLayoutItem BeginRow="true" Caption="@emailTitle" ColSpanMd="12">
+                <DxTextBox @bind-Text=@emailAddress />
+            </DxFormLayoutItem>
+        </div>
+    </DxFormLayoutGroup>
+    <DxFormLayoutItem>
+        <Template>
+            <DxButton 
+                CssClass="col-3 me-2" 
+                Text="Save" 
+                RenderStyle="@ButtonRenderStyle.Primary" 
+                Enabled="@(selectedPerson != null)"
+                Click="@OnSave"/>
+            <DxButton 
+                CssClass="col-3" 
+                Text="Cancel" 
+                RenderStyle="@ButtonRenderStyle.Secondary" 
+                Click="@OnCancel" />
+        </Template>
+    </DxFormLayoutItem>
+</DxFormLayout>
+
+@code {
+
+    [CascadingParameter]
+    LoginState loginState { get; set; }
+
+    [Parameter]
+    public EventCallback<PortalMenuResult> OnSelectedOptionCompleted { get; set; }
+
+    List<Person> SelectedPeople = new List<Person>();
+    Person? selectedPerson = null;
+    SystemSettings? settings;
+    string mailSurchargeWarning = string.Empty;
+    string emailTitle = string.Empty;
+    string emailAddress = string.Empty;
+    MessageBox? messageBox;
+
+    protected override async Task OnInitializedAsync() {
+        await base.OnInitializedAsync();
+        using (var dbc = await U3Adbfactory.CreateDbContextAsync())
+        {
+            settings = await dbc.SystemSettings.FirstOrDefaultAsync();
+        }
+        if (settings.MailSurcharge > 0) mailSurchargeWarning =
+            $"Note: Correspondence by post will incur a mail surcharge of {settings.MailSurcharge.ToString("c2")} per year.";
+    }
+
+
+    void SelectedPersonChanged(IEnumerable<Person> values) {
+        selectedPerson = values.First();
+        emailTitle = $"{selectedPerson.FullName}'s email address";
+        StateHasChanged();
+    }
+
+    async Task OnSave() {
+        using (var dbc = await U3Adbfactory.CreateDbContextAsync()) {
+            var p = await dbc.Person.FindAsync(selectedPerson.ID);
+            p.Email = emailAddress;
+            if (!string.IsNullOrWhiteSpace(emailAddress)) {
+                p.Communication = "Post";
+            }
+            dbc.Update(p);
+            await dbc.SaveChangesAsync();
+        }
+        await messageBox.ShowOkOnlyAsync("Unlink Succeeded", "You must now re-login for the change to take affect.<br>" +
+                                            "Click Ok to logout");
+        loginState.SelectedPerson = null;
+        await OnCancel();
+    }
+
+    async Task ReturnToMenu(PortalMenuResult result) {
+        await OnSelectedOptionCompleted.InvokeAsync(result);
+    }
+
+    async Task OnCancel() {
+        if (loginState.SelectedPerson != null) {
+            await ReturnToMenu(PortalMenuResult.MenuOptionCancelled);
+        }
+        else {
+            NavigationManager.NavigateTo("Identity/Account/Logout", true);
+        }
+    }
+
+
+}

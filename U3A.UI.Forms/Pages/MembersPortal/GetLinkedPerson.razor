@@ -1,0 +1,62 @@
+﻿
+@attribute [Authorize]
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+
+
+    <DxFormLayout>
+        <div class="h6" align="center">Select Linked Member</div>
+        <DxListBox Data="loginState.LinkedPeople"
+               ShowCheckboxes="true"
+               SelectionMode="ListBoxSelectionMode.Single"
+               Values="@SelectedPeople"
+               ValuesChanged="@((IEnumerable<Person> values) => SelectedItemsChanged(values))">
+            <DxListEditorColumn FieldName="@nameof(Person.FirstName)"
+                            Caption="First Name" />
+        <DxListEditorColumn FieldName="@nameof(Person.LastName)"
+                            Caption="Last Name" />
+        <DxListEditorColumn FieldName="@nameof(Person.PersonIdentity)"
+                            Caption="Identity" />
+    </DxListBox>
+    </DxFormLayout>
+
+@code {
+
+    [CascadingParameter]
+    LoginState loginState { get; set; }
+
+    [Parameter]
+    public EventCallback<PortalMenuResult> OnSelectedOptionCompleted { get; set; }
+
+    List<Person> SelectedPeople = new List<Person>();
+
+    protected override void OnParametersSet() {
+        base.OnParametersSet();
+    }
+
+    async Task SelectedItemsChanged(IEnumerable<Person> values) {
+        var selectedPerson = values.First();
+        using (var dbc = await U3Adbfactory.CreateDbContextAsync())
+        {
+            var status = await dbc.OnlinePaymentStatus
+                             .Where(x => x.PersonID == selectedPerson.ID)
+                             .OrderBy(x => x.UpdatedOn)
+                             .FirstOrDefaultAsync();
+            if (status != null) {
+                status.UpdatedOn = DateTime.MaxValue; //force an update
+                dbc.Update(status);
+            }
+            else {
+                status = new OnlinePaymentStatus() {
+                        AccessCode = string.Empty,
+                        PersonID = selectedPerson.ID,
+                        Status = String.Empty
+                    };
+                dbc.Add(status);
+            }
+            await dbc.SaveChangesAsync();
+            loginState.SelectedPerson = selectedPerson;
+        }
+        await OnSelectedOptionCompleted.InvokeAsync(PortalMenuResult.MenuOptionCompleted);
+    }
+
+}

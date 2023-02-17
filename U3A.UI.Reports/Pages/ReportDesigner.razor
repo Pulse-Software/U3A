@@ -1,0 +1,22 @@
+﻿@page "/ReportDesigner"
+
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@implements IDisposable
+
+@if (!IsReady) {
+    <p><em>Loading...</em></p>
+}
+else {
+
+<DxReportDesigner Height="1000px" Width="100%" AllowMDI="true">
+    <DxReportDesignerWizardSettings UseFullscreenWizard="true" />
+</DxReportDesigner>
+
+}
+
+@code {
+    bool IsReady = true;
+    public void Dispose() {
+    }
+
+}

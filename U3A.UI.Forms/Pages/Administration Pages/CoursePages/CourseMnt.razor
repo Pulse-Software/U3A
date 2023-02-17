@@ -1,0 +1,276 @@
+﻿@page "/CourseMnt"
+
+@inject NavigationManager NavMan
+@inject IJSRuntime js
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@implements IDisposable
+
+@using U3A.UI.Forms.Pages.Shared
+
+
+@attribute [Authorize]
+
+@if (!IsReady) {
+    <p><em>Loading...</em></p>
+}
+else {
+
+    <div class="row">
+        <div class="col col-lg-10">
+            <h3>Courses</h3>
+            <p>
+                Courses are studies and/or activities undertaken by participants.
+                <strong>Note:</strong> A course must have at least one class to enable enrolments.
+            </p>
+        </div>
+        <div class="col col-lg-2">
+            <YearComponent @ref="@yearComponent" OnYearChangedEvent="SelectedYearChanged" />
+        </div>
+    </div>
+
+
+    <br />
+    <MessageBox @ref="@messageBox" />
+
+    <ErrorPopup @ref="@ErrorPopup" PopupHeader="@ErrorHeader" PopupMessage="@ErrorMessage" />
+
+    <GridToolbar @ref="Toolbar" LinkedGrid=@mainGrid />
+
+    <DxGrid Data="@Courses" @ref=@mainGrid CssClass="h-75"
+        AutoCollapseDetailRow="true"
+        ColumnResizeMode="GridColumnResizeMode.ColumnsContainer"
+        ShowFilterRow="false"
+        ShowAllRows="false"
+        KeyFieldName="ID"
+        ValidationEnabled="true"
+        PageSize="100"
+        PageSizeSelectorVisible="true"
+        PageSizeSelectorItems="@(new int[] {10,15, 20, 40,60,80, 100, 200,400 })"
+        PageSizeSelectorAllRowsItemVisible="true"
+        PagerSwitchToInputBoxButtonCount="10"
+        PagerVisibleNumericButtonCount="10"
+        PagerVisible="true"
+        EditMode="GridEditMode.PopupEditForm"
+        EditModelSaving="Grid_EditModelSaving"
+        PopupEditFormCssClass="popup-width"
+        PopupEditFormHeaderText="Add/Edit Course"
+        CustomizeEditModel="Grid_CustomizeEditModel"
+        DataItemDeleting="Grid_DataItemDeleting">
+        <Columns>
+            <DxGridCommandColumnEx @ref="GridCommandColumn"
+                               NewButtonVisible="true"
+                               EditButtonVisible="true"
+                               DeleteButtonVisible="true" />
+            <DxGridDataColumn Caption="ID" FieldName="ConversionID" Width="3rem" DisplayFormat="#####" />
+            <DxGridDataColumn Caption="Name" FieldName="Name" Width="20rem" />
+            <DxGridDataColumn Caption="Type" FieldName="CourseType.Name" />
+            <DxGridDataColumn Caption="Participants Enrol In" FieldName="CourseParticipationType.ShortName" />
+            <DxGridDataColumn Caption="Fee / Year" FieldName="CourseFeePerYear" DisplayFormat="{0:c}" />
+            <DxGridDataColumn Caption="Fee / Term" FieldName="CourseFeePerTerm" DisplayFormat="{0:c}" />
+            <DxGridDataColumn Caption="Duration" FieldName="Duration" DisplayFormat="{0:n2}" />
+            <DxGridDataColumn Caption="Required Participants" FieldName="RequiredStudents" DisplayFormat="{0:n0}" />
+            <DxGridDataColumn Caption="Maximum Allowed" FieldName="MaximumStudents" DisplayFormat="{0:n0}" />
+        </Columns>
+        <DetailRowTemplate>
+            <ClassDetail Course="(Course)context.DataItem" AllowEdit="false" />
+        </DetailRowTemplate>
+
+        <EditFormTemplate Context="EditFormContext">
+            <CourseDetail @ref="@courseDetail" AnyEnrolmentsInYear="@anyEnrolmentsInYear"
+                      Course="(Course)EditFormContext.EditModel"
+                      Persons="@Persons" CourseTypes="@CourseTypes"
+                      Venues="@Venues" WeekDays="@WeekDays" DbContext="@dbc"
+                      CourseParticpationTypes="@CourseParticpationTypes" />
+        </EditFormTemplate>
+    </DxGrid>
+
+}
+<style>
+    .popup-width {
+        min-width: 55rem;
+    }
+
+</style>
+
+
+
+@code {
+    bool IsReady;
+    IEnumerable<CourseParticipationType> CourseParticpationTypes { get; set; }
+    IEnumerable<Person> Persons { get; set; }
+    IEnumerable<Venue> Venues { get; set; }
+    IEnumerable<WeekDay> WeekDays { get; set; }
+    List<Course> Courses { get; set; }
+    List<CourseType> CourseTypes { get; set; }
+    MessageBox? messageBox;
+    YearComponent? yearComponent;
+    Term? currentTerm;
+    int Year;
+    bool anyEnrolmentsInYear;
+
+
+    DxGridCommandColumn? GridCommandColumn;
+
+    CourseDetail courseDetail { get; set; }
+    IGrid? mainGrid { get; set; }
+    GridToolbar? Toolbar;
+
+    ErrorPopup? ErrorPopup { get; set; }
+    string ErrorHeader;
+    string ErrorMessage;
+
+
+    U3ADbContext dbc { get; set; }
+
+    protected override async Task OnInitializedAsync() {
+        // wire up the data
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+        CourseParticpationTypes = await BusinessRule.SelectableCourseParticipationTypesAsync(dbc);
+        CourseTypes = await BusinessRule.SelectableCourseTypesAsync(dbc);
+        Venues = await BusinessRule.SelectableVenuesAsync(dbc);
+        WeekDays = await BusinessRule.SelectableWeekdaysAsync(dbc);
+        currentTerm = await BusinessRule.CurrentTermAsync(dbc);
+        if (currentTerm != null) {
+            Persons = await BusinessRule.SelectablePersonsIncludeUnfinancialAsync(dbc);
+            var firstTermNextYear = await BusinessRule.FirstTermNextYearAsync(dbc, currentTerm.Year);
+            if (firstTermNextYear != null && DateTime.Today >= firstTermNextYear.EnrolmentStartDate) {
+                Year = firstTermNextYear.Year;
+            }
+            else {
+                Year = currentTerm.Year;
+            }
+            await SelectedYearChanged(Year);
+        }
+        IsReady = true;
+    }
+
+    protected override async void OnAfterRender(bool firstRender) {
+        // wire up the toolbar
+        base.OnAfterRender(firstRender);
+        if (Toolbar != null && mainGrid != null) { Toolbar.LinkedGrid = mainGrid; }
+        if (!firstRender) {
+            if (currentTerm == null) {
+                await messageBox.ShowOkOnlyAsync("Current Term is undefined", "Use <strong>Add/Edit Enrolment Terms</strong> to set the current term.");
+                NavMan.NavigateTo("/");
+            }
+        }
+    }
+
+    async Task SelectedYearChanged(int NewYear) {
+        Courses = await BusinessRule.EditableCoursesAsync(dbc, NewYear);
+        Year = NewYear;
+    }
+
+    async Task Grid_CustomizeEditModel(GridCustomizeEditModelEventArgs e) {
+        var editModel = (Course)e.EditModel;
+        if (e.IsNew) {
+            anyEnrolmentsInYear = false;
+            editModel.Duration = 2.00M;
+            editModel.MaximumStudents = 28;
+            editModel.RequiredStudents = 6;
+            editModel.Year = yearComponent.Year;
+        }
+        else {
+            anyEnrolmentsInYear = await BusinessRule.AnyEnrolmentsInYear(dbc, editModel, Year);
+        }
+    }
+
+    async Task Grid_EditModelSaving(GridEditModelSavingEventArgs e) {
+        if (courseDetail.classDetail.grid.IsEditing()) {
+            await courseDetail.classDetail.grid.SaveChangesAsync();
+        }
+        var editModel = (Course)e.EditModel;
+        if (!await IsDataOk(editModel)) { e.Cancel = true; return; }
+        // Re-query a data item from the store.
+        var dataItem = e.IsNew ? new Course() : dbc.Course.Find(editModel.ID);
+        // Assign changes from the edit model to the data item.
+        if (dataItem != null) {
+            editModel.CopyTo(dataItem);
+            dataItem.CourseType = dbc.CourseType.Find(editModel.CourseType.ID);
+            if (editModel.CourseParticipationType != null) {
+                dataItem.CourseParticipationType =
+                dbc.CourseParticpationType.Find(editModel.CourseParticipationType.ID);
+            }
+            ProcessClasses(dataItem, editModel);
+            // Post changes to the database.
+            if (e.IsNew) await dbc.AddAsync(dataItem);
+            if (await SaveChangesAsync()) {
+                // update the Grid.
+                if (e.IsNew) {
+                    Courses.Insert(0, dataItem);
+                }
+                else {
+                    int idx = Courses.FindIndex(x => x.ID == dataItem.ID);
+                    Courses[idx] = dataItem;
+                    ShowDetail(e);
+                }
+            }
+        }
+    }
+
+    async Task<bool> IsDataOk(Course editItem) {
+        bool result = true;
+        var dup = await BusinessRule.DuplicateMarkUpAsync(dbc, editItem);
+        if (!string.IsNullOrWhiteSpace(dup)) {
+            await messageBox.ShowOkOnlyAsync("Duplicate Record", dup);
+            result = false;
+        }
+        if (!await BusinessRule.IsCourseNumberUnique(dbc, editItem, Year)) {
+            await messageBox.ShowOkOnlyAsync("Course Number must be unique", $"Course Number {editItem.ConversionID} is not unique in the database.");
+            result = false;
+        }
+        return result;
+    }
+
+    async Task Grid_DataItemDeleting(GridDataItemDeletingEventArgs e) {
+        Course course = (Course)e.DataItem;
+        dbc.Remove(course);
+        await SaveChangesAsync();
+        Courses = await BusinessRule.EditableCoursesAsync(dbc, yearComponent.Year);
+    }
+
+    async Task<bool> SaveChangesAsync() {
+        bool result = false;
+        try {
+            // Post changes to the database.
+            await dbc.SaveChangesAsync();
+            result = true;
+        }
+        catch (Exception ex) {
+            ErrorHeader = "Save to database error";
+            ErrorMessage = Helpers.GetErrorMessage(ex);
+            await ErrorPopup.ShowPopupAsync();
+            dbc?.ChangeTracker?.Clear();
+        }
+        return result;
+    }
+
+    void ShowDetail(GridEditModelSavingEventArgs e) {
+        var startPageIndex = e.Grid.GetStartRowVisibleIndex();
+        var lastPageIndex = startPageIndex + e.Grid.PageSize;
+
+        //loop to visible rows and find which row is editing.
+
+        int visibleEditingIndex;
+
+        for (visibleEditingIndex = startPageIndex; visibleEditingIndex <= lastPageIndex; visibleEditingIndex++) {
+            if (e.Grid.IsEditingRow(visibleEditingIndex)) {
+                e.Grid.ExpandDetailRow(visibleEditingIndex);
+                StateHasChanged();
+                break;
+            }
+        }
+    }
+
+    void ProcessClasses(Course dataItem, Course editModel) {
+        foreach (Class c in editModel.Classes) {
+            if (dataItem.Classes.Where(x => x.ID == c.ID).Count() == 0) {
+                dataItem.Classes.Add(c);
+            }
+        }
+    }
+
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+}

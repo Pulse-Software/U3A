@@ -1,0 +1,83 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>U3A Member Portal Closed</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-rbsA2VBKQhggwzxH7pPCaAqO46MgnOM80zW1RWuH61DGLwZJEdK2Kadq2F9CUG65" crossorigin="anonymous">
+    <link href="_content/DevExpress.Blazor.Themes/office-white.bs5.min.css" rel="stylesheet" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/favicon/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon/favicon-16x16.png">
+    <link rel="manifest" href="/favicon/site.webmanifest">
+</head>
+
+<body class="background">
+
+    <script>
+        window.onload = function () {
+            var href = '_content/DevExpress.Blazor.Themes/office-white.bs5.min.css';
+            var theme = localStorage.getItem('theme');
+            if (theme != 'undefined') {
+                theme = theme.replace('"', '',);
+                theme = theme.replace('"', '',);
+                href = href.replace('office-white', theme);
+                var link = document.createElement('link');
+                link.rel = "stylesheet";
+                link.type = "text/css";
+                link.href = href;
+                document.head.appendChild(link);
+            }
+            else {
+                document.head.appendChild(href);
+            }
+        }
+    </script>
+
+    <div class="container col-12 col-md-4">
+        <div class="row mt-4">
+            <div class="span4"></div>
+            <div class="span4"><img class="center-block" src="/Favicon/android-chrome-512x512.png" width="100" height="100" /></div>
+            <div class="span4"></div>
+        </div>
+        <div class="row text-center text-primary mt-4">
+            <h2>Member Portal Logout</h2>
+        </div>
+        <div class="row text-center text-dark mt-2">
+            <p>
+                You have reached this page because you clicked on the
+                <strong>Logout</strong> button or the software detected a period of inactivity.
+            </p>
+            <p>
+                Logging out is a good habit to get into. It protects your private data and releases
+                valuable server resources that become available to other members.
+            </p>
+            <p>To login again, simply click the link below...</p>
+        </div>
+        <div class="row text-center text-primary">
+            <a class="center-block btn btn-primary" href="/">Click here to login</a>
+        </div>
+    </div>
+
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-kenU1KFdBIe4zVF0s0G1M5b4hcpxyD9F7jL+jjXkk+Q2h455rYXK/7HAuoJl+0I4" crossorigin="anonymous"></script>
+</body>
+</html>
+<style>
+    .center-block {
+        display: block;
+        margin-left: auto;
+        margin-right: auto;
+    }
+
+    .span4 {
+        width: 33.33% !important
+    }
+
+    .background {
+        overflow: clip;
+        width: 100vw;
+        height: 100vh;
+        background: linear-gradient(to bottom, #FFFFFF 0%, #808080 100%);
+    }
+</style>

@@ -1,0 +1,180 @@
+﻿@page "/PublicHolidayMnt"
+
+@inject IJSRuntime js
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@implements IDisposable
+
+
+@attribute [Authorize]
+
+@if (!IsReady) {
+    <p><em>Loading...</em></p>
+}
+else {
+
+        <div class="row  align-content-start">
+            <h3>Public Holidays</h3>
+        </div>
+        <div class="row d-print-none">
+            <div class="col-9  d-none d-md-inline">
+                <p>
+                    This Public Holiday list is retrieved from a database maintained by the 
+                    <a target="_blank" rel="noopener noreferrer" href="https://www.australia.gov.au/public-holidays">Australian Government</a>.
+                    You should rebuild it once per year and rarely need to edit it.
+                </p>
+            </div>
+            <div class="col-3 d-none d-md-inline-flex justify-content-end">
+                <DxButton RenderStyle="ButtonRenderStyle.Primary" style="height: 2rem"
+                      RenderStyleMode="ButtonRenderStyleMode.Contained" Click="@ProcessButtonClicked">
+                    <span style="visibility: @SpinnerVisibility"
+                      class="spinner-border spinner-border-sm" role="status" />&nbsp;@ProcessButtonText
+                </DxButton>
+            </div>
+        </div>
+        <br />
+
+        <MessageBox @ref="@messageBox" />
+
+        <ErrorPopup @ref="@ErrorPopup" PopupHeader="@ErrorHeader" PopupMessage="@ErrorMessage" />
+
+        <GridToolbar @ref="Toolbar" LinkedGrid=@mainGrid />
+
+        <DxGrid Data="@PublicHolidays" @ref=@mainGrid CssClass="h-75"
+            ColumnResizeMode="GridColumnResizeMode.ColumnsContainer"
+            ShowFilterRow="false"
+            ShowAllRows="true"
+            KeyFieldName="ID"
+            ValidationEnabled="true"
+            EditMode="GridEditMode.PopupEditForm"
+            DataItemDeleting="Grid_DataItemDeleting"
+            EditModelSaving="Grid_EditModelSaving">
+            <Columns>
+                <DxGridCommandColumnEx @ref="GridCommandColumn" Width="10rem" EditButtonVisible="true" DeleteButtonVisible="true" />
+                <DxGridDataColumn FieldName="Date" DisplayFormat="@constants.STD_DATE_FORMAT" />
+                <DxGridDataColumn FieldName="Name" />
+            </Columns>
+            <TotalSummary>
+                <DxGridSummaryItem SummaryType="GridSummaryItemType.Custom" Name="Custom" FieldName="Discontinued" />
+            </TotalSummary>
+
+            <EditFormTemplate Context="EditFormContext">
+                @{
+                    var editItem = (PublicHoliday)EditFormContext.EditModel;
+                }
+                <DxFormLayout>
+                    <DxFormLayoutItem ColSpanMd="12">
+                        <ValidationSummary />
+                    </DxFormLayoutItem>
+                    <DxFormLayoutItem Caption="Date" ColSpanMd="12">
+                        <DxDateEdit @bind-Date="@editItem.Date" />
+                    </DxFormLayoutItem>
+                    <DxFormLayoutItem Caption="Holiday" ColSpanMd="12">
+                        <DxTextBox @bind-Text="@editItem.Name" />
+                    </DxFormLayoutItem>
+                </DxFormLayout>
+            </EditFormTemplate>
+        </DxGrid>
+
+}
+
+@code {
+    bool IsReady;
+    private List<PublicHoliday> PublicHolidays { get; set; }
+    private DxGridCommandColumnEx? GridCommandColumn;
+    MessageBox? messageBox;
+
+    internal IGrid? mainGrid { get; set; }
+    internal ErrorPopup? ErrorPopup { get; set; }
+    internal GridToolbar? Toolbar;
+    internal string ErrorHeader;
+    internal string ErrorMessage;
+    U3ADbContext dbc { get; set; }
+
+    string SpinnerVisibility = "hidden";
+    string ProcessButtonText = "Rebuild The List";
+
+    protected override async Task OnInitializedAsync() {
+        // wire up the data
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+        await GetPublicHolidaysAsync();
+        IsReady = true;
+    }
+
+    async Task GetPublicHolidaysAsync() {
+        PublicHolidays = await dbc.PublicHoliday.OrderBy(x => x.Date).ToListAsync();
+    }
+    protected override void OnAfterRender(bool firstRender) {
+        // wire up the toolbar
+        base.OnAfterRender(firstRender);
+        if (Toolbar != null && mainGrid != null) { Toolbar.LinkedGrid = mainGrid; }
+    }
+
+    async Task Grid_EditModelSaving(GridEditModelSavingEventArgs e) {
+        var editModel = (PublicHoliday)e.EditModel;
+        // Re-query a data item from the store.
+        var dataItem = e.IsNew ? new PublicHoliday() : dbc.PublicHoliday.Find(editModel.ID);
+        // Assign changes from the edit model to the data item.
+        if (dataItem != null) {
+            editModel.CopyTo(dataItem);
+            // Post changes to the database.
+            if (e.IsNew) await dbc.AddAsync(dataItem);
+            if (await SaveChangesAsync()) {
+                // update the Grid.
+                if (e.IsNew) {
+                    PublicHolidays.Insert(0, dataItem);
+                }
+                else {
+                    int idx = PublicHolidays.FindIndex(x => x.ID == dataItem.ID);
+                    PublicHolidays[idx] = dataItem;
+                }
+            }
+        }
+    }
+
+    async Task Grid_DataItemDeleting(GridDataItemDeletingEventArgs e) {
+        dbc.Remove<PublicHoliday>((PublicHoliday)e.DataItem);
+        await SaveChangesAsync();
+        mainGrid.ClearSelection();
+        await GetPublicHolidaysAsync();
+    }
+
+    async Task<bool> SaveChangesAsync() {
+        bool result = false;
+        try {
+            // Post changes to the database.
+            await dbc.SaveChangesAsync();
+            result = true;
+        }
+        catch (Exception ex) {
+            ErrorHeader = "Save to database error";
+            ErrorMessage = Helpers.GetErrorMessage(ex);
+            await ErrorPopup.ShowPopupAsync();
+            dbc?.ChangeTracker?.Clear();
+        }
+        return result;
+    }
+
+
+    async Task ProcessButtonClicked() {
+        ProcessButtonText = "Loading...";
+        SpinnerVisibility = "visible";
+        try {
+            PublicHolidays = await BusinessRule.RebuildPublicHolidaysAsync(dbc);
+        }
+        catch ( Exception e) {
+            ErrorHeader = "Save to database error";
+            ErrorMessage = Helpers.GetErrorMessage(e);
+            await ErrorPopup.ShowPopupAsync();
+            dbc?.ChangeTracker?.Clear();
+        }
+        finally {
+            ProcessButtonText = "Rebuild The List";
+            SpinnerVisibility = "hidden";
+        }
+    }
+
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+
+}

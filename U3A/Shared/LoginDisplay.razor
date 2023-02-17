@@ -1,0 +1,34 @@
+﻿@{
+    if (isAuthenticated)
+    {
+        <form class="form-inline me-4" method="post" action="Identity/Account/LogOut">
+            <a class="btn btn-link" href="Identity/Account/Manage">Hello, @user!</a>
+            <button type="submit" class="btn btn-primary">Log out</button>
+        </form>
+    }
+    else
+    {
+        <form class="form-inline me-1">
+            <a class="btn btn-link" href="Identity/Account/Register">Register</a>
+            <a class="btn btn-primary" href="Identity/Account/Login">Log in</a>
+        </form>
+    }
+}
+
+@code {
+    [Parameter]
+    public string? StateCssClass { get; set; }
+
+    bool isAuthenticated { get; set; }
+    string user { get; set; }
+
+    [CascadingParameter] Task<AuthenticationState> authenticationStateTask { get; set; }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var authenticationState = await authenticationStateTask;
+        isAuthenticated = authenticationState.User.Identity.IsAuthenticated;
+        user = authenticationState.User.Identity.Name;
+    }
+
+}

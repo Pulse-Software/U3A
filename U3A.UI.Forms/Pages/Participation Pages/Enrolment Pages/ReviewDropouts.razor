@@ -1,0 +1,281 @@
+﻿@page "/ReviewDropouts"
+
+@inject NavigationManager NavMan
+@inject IJSRuntime js
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@implements IDisposable
+
+
+@attribute [Authorize]
+
+@if (!IsReady) {
+    <p><em>Loading...</em></p>
+}
+else {
+
+    <div class="col col-12 col-md-10 p-2 m-auto">
+        <div class="row align-content-start">
+            <h3>Review Class Dropouts</h3>
+        </div>
+        <div class="row">
+            <div class="d-none col-lg-8 d-lg-inline">
+                Review / Reinstate Class Dropouts. That is, deleted enrolments.
+            </div>
+        </div>
+
+        <MessageBox @ref="@messageBox" />
+        <ErrorPopup @ref="@ErrorPopup" PopupHeader="@ErrorHeader" PopupMessage="@ErrorMessage" />
+
+        <SelectDocumentTemplatePopup @ref="@selectDocumentTemplatePopup" dbContext="@dbc"
+                                 DocumentTemplates="@DocumentTemplates" SendTo="@SendTo" />
+        <Progress @ref="@ProgressBar" />
+
+        <DxFormLayout CssClass="mt-2">
+            <DxFormLayoutGroup Caption="Dropout Details">
+                <DxFormLayoutItem Caption="Enrolment Term" ColSpanMd="9">
+                    <DxComboBox Data="@terms" NullText="Select the Term required..."
+                            FilteringMode="DataGridFilteringMode.Contains"
+                            TextFieldName="@nameof(Term.TermSummary)"
+                            Value="@selectedTerm"
+                            ValueChanged="@((Term term) => SelectedTermChanged(term))" />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="" ColSpanMd="3">
+                    <DxButton Text="Reinstate Selected"
+                          Click="@OnReinstateClick"
+                          Enabled="@(SelectedDataItems != null && SelectedDataItems.Count() > 0)"
+                          RenderStyle="ButtonRenderStyle.Primary" />
+                    <DxButton Text="Communicate" CssClass="mx-4"
+                          Click="@OnCommunicate"
+                          Enabled="@(SelectedDataItems != null && SelectedDataItems.Count() > 0)"
+                          RenderStyle="ButtonRenderStyle.Primary" />
+                </DxFormLayoutItem>
+            </DxFormLayoutGroup>
+
+            <GridToolbar @ref="Toolbar" LinkedGrid=@mainGrid />
+            <DxGrid Data="@Dropouts" @ref=@mainGrid CssClass="grid-height"
+                ShowAllRows="true"
+                ColumnResizeMode="GridColumnResizeMode.ColumnsContainer"
+                KeyFieldName="ID"
+                ValidationEnabled="true"
+                SelectionMode="GridSelectionMode.Multiple"
+                AllowSelectRowByClick="true"
+                AutoExpandAllGroupRows="true"
+                @bind-SelectedDataItems="SelectedDataItems">
+                <Columns>
+                    <DxGridSelectionColumn Width="2rem" />
+                    <DxGridDataColumn Caption="Course" FieldName="Course.Name" GroupIndex="0" />
+                    <DxGridDataColumn Caption="Name" FieldName="Person.FullName" />
+                    <DxGridDataColumn Caption="Waitlisted?" FieldName="IsWaitlisted" Width="5rem">
+                        <CellDisplayTemplate>
+                            <DxCheckBox Enabled="false" Checked="(bool)context.Value" />
+                        </CellDisplayTemplate>
+                        <FilterRowCellTemplate>
+                            <DxCheckBox Checked="(bool?)context.FilterRowValue"
+                                    CheckedChanged="(bool? v) => context.FilterRowValue = v"
+                                    AllowIndeterminateStateByClick="true"
+                                    Alignment="CheckBoxContentAlignment.Center" />
+                        </FilterRowCellTemplate>
+                    </DxGridDataColumn>
+                    <DxGridDataColumn Caption="Fin-To" FieldName="Person.FinancialTo" Width="4rem" DisplayFormat="{0:F0}" />
+                    <DxGridDataColumn Caption="Mobile" FieldName="Person.Mobile" Width="6rem" />
+                    <DxGridDataColumn Caption="Email" FieldName="Person.Email" Width="12rem" />
+                    <DxGridDataColumn Caption="Created" FieldName="Created"
+                                  DisplayFormat="{0:dd-MMM-yy}" Width="6rem" Visible="false" />
+                    <DxGridDataColumn Caption="Enrolled" FieldName="DateEnrolled"
+                                  DisplayFormat="{0:dd-MMM-yy}" Width="6rem" />
+                    <DxGridDataColumn Caption="Dropped Out" FieldName="DropoutDate"
+                                  DisplayFormat="{0:dd-MMM-yy hh:mm tt}" Width="8rem" />
+                    <DxGridDataColumn Caption="Dropped By" FieldName="DeletedBy" />
+                </Columns>
+            </DxGrid>
+        </DxFormLayout>
+    </div>
+
+}
+<style>
+    .grid-height {
+        height: 59vh;
+    }
+
+    .leader-height {
+        height: 11vh;
+    }
+
+</style>
+
+
+@code {
+    bool IsReady;
+    int ShowEnrolmentType;
+    SystemSettings? settings;
+
+    private List<Dropout>? Dropouts { get; set; }
+    Dropout? thisDropout;
+
+    private List<Person>? Persons { get; set; }
+
+    private List<Term> terms { get; set; }
+    private Term? selectedTerm { get; set; } // Term selected in the grid
+    private Term? currentTerm { get; set; } // Current default Term
+
+    IReadOnlyList<object> SelectedDataItems { get; set; }
+
+    string HeaderContent;
+    string MessageContent;
+    MessageBox? messageBox { get; set; }
+    bool MessageBoxShowCancelButton;
+    bool IsSetSelectionEnrolledEnabled;
+
+    IGrid? mainGrid { get; set; }
+    string gridHeight { get; set; }
+    ErrorPopup? ErrorPopup { get; set; }
+    GridToolbar Toolbar;
+    string ErrorHeader;
+    string ErrorMessage;
+    U3ADbContext dbc { get; set; }
+
+    Communication Communication;
+    private List<Person> SendTo { get; set; }
+    private List<DocumentTemplate> DocumentTemplates;
+    private SelectDocumentTemplatePopup selectDocumentTemplatePopup;
+    DocumentServer server;
+    int documentsSent;
+    internal Progress? ProgressBar;
+
+
+    protected override async Task OnInitializedAsync() {
+        // wire up the data
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+
+        Communication = new Communication();
+        DocumentTemplates = await BusinessRule.SelectableDocumentTemplatesAsync(dbc);
+        server = new DocumentServer(dbc);
+        server.DocumentSentEvent += Server_DocumentSent;
+
+        settings = await dbc.SystemSettings.FirstOrDefaultAsync();
+        terms = await BusinessRule.SelectableRelaxedTermsAsync(dbc);
+        currentTerm = selectedTerm = await BusinessRule.CurrentTermAsync(dbc);
+        IsSetSelectionEnrolledEnabled = true;
+        if (selectedTerm != null) {
+            Persons = await BusinessRule.SelectablePersonsAsync(dbc, selectedTerm);
+            await SelectedTermChanged(selectedTerm);
+        }
+        IsReady = true;
+    }
+
+    protected override async void OnAfterRender(bool firstRender) {
+        // wire up the toolbar
+        base.OnAfterRender(firstRender);
+        if (Toolbar != null && mainGrid != null) { Toolbar.LinkedGrid = mainGrid; }
+        if (!firstRender) {
+            if (selectedTerm == null) {
+                await messageBox.ShowOkOnlyAsync("Current Term is undefined", "Use <strong>Add/Edit Enrolment Terms</strong> to set the current term.");
+                NavMan.NavigateTo("/");
+            }
+        }
+    }
+
+    async Task SelectedTermChanged(Term term) {
+        selectedTerm = term;
+        ClearSelection();
+        await GetDropouts();
+    }
+
+    void ClearSelection() {
+        SendTo = null;
+        SelectedDataItems = null;
+    }
+
+    async Task GetDropouts() {
+        Dropouts = await BusinessRule.EditableDropoutsAsync(dbc, selectedTerm);
+    }
+
+    async Task OnReinstateClick() {
+        if (await messageBox.ShowAsync("Reinstate Students?",
+                  $"<p>The {SelectedDataItems.Count} selected students will be reinstated. Their waitlist status will remain unchanged.</p>" +
+                  "<p>Do you wish to continue?</p>")) {
+            foreach (var obj in SelectedDataItems) {
+                var d = (Dropout)(obj);
+                var e = new Enrolment() {
+                        Course = await dbc.Course.FindAsync(d.CourseID),
+                        DateEnrolled = d.DateEnrolled,
+                        IsWaitlisted = d.IsWaitlisted,
+                        Person = await dbc.Person.FindAsync(d.PersonID),
+                        Term = await dbc.Term.FindAsync(d.TermID)
+                    };
+                if (d.ClassID != null) { e.Class = await dbc.Class.FindAsync(d.ClassID); }
+                await dbc.AddAsync(e);
+                dbc.Remove(d);
+            }
+            await SaveChangesAsync();
+            await messageBox.ShowAsync("Students Reinstated",
+                      $"The {SelectedDataItems.Count} selected students have Been reinstated.");
+            ClearSelection();
+            await GetDropouts();
+        }
+    }
+
+
+    async Task<bool> SaveChangesAsync() {
+        bool result = false;
+        try {
+            await dbc.SaveChangesAsync();
+            result = true;
+        }
+        catch (Exception ex) {
+            ErrorHeader = "Save to database error";
+            ErrorMessage = Helpers.GetErrorMessage(ex);
+            await ErrorPopup.ShowPopupAsync();
+            dbc?.ChangeTracker?.Clear();
+        }
+        return result;
+    }
+
+    void ShowEnrolledTypeChanged(int Value) {
+        switch (Value) {
+            case 1:
+                mainGrid?.FilterBy("IsWaitlisted", GridFilterRowOperatorType.Equal, false);
+                break;
+            case 2:
+                mainGrid?.FilterBy("IsWaitlisted", GridFilterRowOperatorType.Equal, true);
+                break;
+            default:
+                mainGrid?.ClearFilter();
+                break;
+        }
+    }
+
+
+    async Task OnCommunicate() {
+
+        if (SelectedDataItems == null || SelectedDataItems.Count <= 0) {
+            await messageBox.ShowOkOnlyAsync("Make a Selection", "Select one or more participants to communicate with.");
+            return;
+        }
+        SendTo = new List<Person>
+            ();
+        foreach (var e in SelectedDataItems.Cast<Dropout>
+            ().ToList()) {
+            SendTo.Add(e.Person);
+        };
+        if (await selectDocumentTemplatePopup.ShowAsync()) {
+            documentsSent = 0;
+            await ProgressBar.ShowAsync("Sending ... Please Wait", SelectedDataItems.Count);
+            List<ExportData>
+                exportData = await BusinessRule.GetExportDataAsync(dbc, SendTo);
+            bool overridePreference = selectDocumentTemplatePopup.OverrideCommunicationPreference;
+            await server.MailMerge(dbc, selectDocumentTemplatePopup.SelectedDocumentTemplate, exportData, overridePreference);
+            await ProgressBar.Close();
+            await messageBox.ShowOkOnlyAsync("Communication Complete", server.GetHTMLResult());
+        }
+    }
+
+    async void Server_DocumentSent(object sender, DocumentSentEventArgs e) {
+        documentsSent += e.DocumentsSent;
+        await ProgressBar.SetValueAsync(documentsSent);
+    }
+
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+}

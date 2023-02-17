@@ -1,0 +1,115 @@
+﻿@namespace U3A.UI.Forms
+
+
+<DxLayoutBreakpoint MaxWidth="768"
+                    @bind-IsActive="@IsSmallLayout" />
+@if (!IsReady) {
+    <p><em>Loading...</em></p>
+}
+else {
+
+    <DxGrid Data="@Enrolments" CssClass="grid-height"
+        ShowAllRows="true"
+        ColumnResizeMode="GridColumnResizeMode.ColumnsContainer"
+        KeyFieldName="ID"
+        ValidationEnabled="true"
+        SelectionMode="GridSelectionMode.Multiple"
+        AllowSelectRowByClick="false"
+        UnboundColumnData="Grid_CustomUnboundColumnData"
+        @bind-SelectedDataItems="SelectedDataItems">
+        <Columns>
+            <DxGridSelectionColumn Width="2rem" />
+            <DxGridDataColumn Caption="#" Width="1rem" FieldName="Sequence"
+                          DisplayFormat="n0"
+                          UnboundType="GridUnboundColumnType.Integer" />
+            <DxGridDataColumn Caption="Name" FieldName="Person.FullName" />
+            <DxGridDataColumn Caption="Waitlisted?" FieldName="IsWaitlisted" Width="5rem" Visible="false">
+                <CellDisplayTemplate>
+                    <DxCheckBox Enabled="false" Checked="(bool)context.Value" />
+                </CellDisplayTemplate>
+                <FilterRowCellTemplate>
+                    <DxCheckBox Checked="(bool?)context.FilterRowValue"
+                            CheckedChanged="(bool? v) => context.FilterRowValue = v"
+                            AllowIndeterminateStateByClick="true"
+                            Alignment="CheckBoxContentAlignment.Center" />
+                </FilterRowCellTemplate>
+            </DxGridDataColumn>
+            <DxGridDataColumn Caption="Vax Cert?" FieldName="Person.VaxCertificateViewed"
+                          Width="5rem" Visible="@(Settings.RequireVaxCertificate && !IsSmallLayout)">
+                <CellDisplayTemplate>
+                    <DxCheckBox Enabled="false" Checked="(bool)context.Value" Alignment="CheckBoxContentAlignment.Center" />
+                </CellDisplayTemplate>
+                <FilterRowCellTemplate>
+                    <DxCheckBox Checked="(bool?)context.FilterRowValue"
+                            CheckedChanged="(bool? v) => context.FilterRowValue = v"
+                            AllowIndeterminateStateByClick="true"
+                            Alignment="CheckBoxContentAlignment.Center" />
+                </FilterRowCellTemplate>
+            </DxGridDataColumn>
+            <DxGridDataColumn Caption="Enrolled"
+                          FieldName="DateEnrolled"
+                          Visible="!IsSmallLayout"
+                          Width="4rem" DisplayFormat="{0:dd/MM/yy}" />
+            <DxGridDataColumn Caption="Fin-To"
+                          FieldName="Person.FinancialTo"
+                          Visible="!IsSmallLayout"
+                          Width="4rem" DisplayFormat="{0:F0}" />
+            <DxGridDataColumn Caption="Mobile" 
+                          Visible="!IsSmallLayout"
+                          FieldName="Person.Mobile"
+                          Width="6rem" />
+            <DxGridDataColumn Caption="Home" 
+                          Visible="!IsSmallLayout"
+                          FieldName="Person.HomePhone"
+                          Width="6rem" />
+        </Columns>
+    </DxGrid>
+    <p>
+        @(SelectedDataItemsCount().ToString("f0"))
+        students selected.
+    </p>
+}
+<style>
+    .grid-height {
+        height: 50vh;
+    }
+
+</style>
+
+
+@code {
+    bool IsReady;
+
+    [Parameter]
+    public SystemSettings? Settings { get; set; }
+    [Parameter]
+    public List<Enrolment>? Enrolments { get; set; }
+    [Parameter]
+    public IReadOnlyList<object> SelectedDataItems { get; set; }
+
+    bool IsSmallLayout;
+    int sequence = 1;
+
+
+    protected override void OnInitialized() {
+        base.OnInitialized();
+        IsReady = true;
+    }
+
+    protected override void OnAfterRender(bool firstRender) {
+        base.OnAfterRender(firstRender);
+        sequence = 1;
+    }
+
+    int SelectedDataItemsCount() {
+        var result = 0;
+        if (SelectedDataItems != null) result = SelectedDataItems.Count();
+        return result;
+    }
+
+    void Grid_CustomUnboundColumnData(GridUnboundColumnDataEventArgs e) {
+        if (e.FieldName == "Sequence") {
+            e.Value = sequence++;
+        }
+    }
+}

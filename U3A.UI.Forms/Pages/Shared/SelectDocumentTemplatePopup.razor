@@ -1,0 +1,286 @@
+﻿<DxPopup Visible="@popupVisible" @ref="@popup" Width="@((pdfVisible) ? "80rem" : "65rem")"
+         CloseButtonClick="@NegativeButtonClicked"
+         CloseOnEscape="false"
+         CloseOnOutsideClick="false"
+         ShowFooter="true"
+         HeaderText="Communicate">
+    <BodyTemplate Context="PopupContext">
+        @if (pdfVisible) {
+            <iframe src="@pdfContent" width="100%" height="800rem" />
+        }
+        else {
+            <MessageBox @ref="messageBox" />
+            <DxFormLayout CssClass="px-2 pt-2 col-12">
+                <DxFormLayoutItem Caption="Document Templates" ColSpanMd="12">
+                    <DxComboBox Data="@DocumentTemplates" NullText="Select the document template..."
+                            Value="@SelectedDocumentTemplate"
+                            ValueChanged="@((DocumentTemplate template) => SelectedTemplateChanged(template))"
+                            EditFormat="{0}">
+                        <DxListEditorColumn FieldName="@nameof(DocumentTemplate.Name)"
+                                        Caption="Template" Width="15rem" />
+                        <DxListEditorColumn FieldName="@nameof(DocumentTemplate.DocumentTypeName)"
+                                        Caption="Type" Width="15rem" />
+                        <DxListEditorColumn FieldName="@nameof(DocumentTemplate.Subject)" />
+                    </DxComboBox>
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Email Subject" ColSpanMd="12" Visible="@IsEmail">
+                    <DxTextBox @bind-Text="@SelectedDocumentTemplate.Subject" />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="From Address" ColSpanMd="12" Visible="@IsEmail">
+                    <DxComboBox Data="@emailAddresses" AllowUserInput="true"
+                            NullText="Enter the enail address to send from..."
+                            TData="string"
+                            TValue="string"
+                            Text="@SelectedDocumentTemplate.FromEmailAddress"
+                            TextExpression="@(() => SelectedDocumentTemplate.FromEmailAddress)"
+                            TextChanged="@((string emailAddress) => SelectedEmailAddressChanged(emailAddress))" />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="@FromDisplayNameText" ColSpanMd="12" Visible="@IsEmailOrSMS">
+                    <DxComboBox Data="@displayNames" AllowUserInput="true"
+                            NullText="Enter the enail address to send from..."
+                            TData="string"
+                            TValue="string"
+                            @bind-Text="@SelectedDocumentTemplate.FromDisplayName" />
+                </DxFormLayoutItem>
+                <DxFormLayout CssClass="px-2 pt-2 col-12">
+                    <DxFormLayoutItem Caption="Override Communication Preference?" ColSpanMd="12">
+                        <DxCheckBox @bind-Checked="@OverrideCommunicationPreference" />
+                    </DxFormLayoutItem>
+                </DxFormLayout>
+                <DxFormLayoutItem ColSpanMd="12">
+                    <div class="alert-danger text-center col-12"><strong>Warning:</strong> If you copy/paste document text all merge codes will be lost and must be recreated.</div>
+                    <DxRichEdit @ref="@richEdit" ReadOnly="@(!IsEmailOrSMS && !IsEmailOrPostal)"
+                            ActiveRibbonTabIndex="ActiveTabIndex"
+                            BarMode=BarMode.Ribbon
+                            DocumentContent="@SelectedDocumentTemplate.Content"
+                            DocumentFormat="DocumentFormat.Rtf"
+                            CustomizeRibbon="OnCustomizeRichEditToolbar"
+                            DocumentLoaded="OnDocumentLoaded"
+                            DocumentContentChanged="OnDocumentContentChanged"
+                            CssClass="w-100">
+                        <MailMergeSettings>
+                            <DxMailMergeSettings Data="@ExportData" />
+                        </MailMergeSettings>
+                    </DxRichEdit>
+                </DxFormLayoutItem>
+            </DxFormLayout>
+        }
+    </BodyTemplate>
+    <FooterContentTemplate>
+        <div class="small" hidden="@(!pdfVisible)">Document is blank? Check <strong>Override Communication Preference.</strong></div>
+        <DxButton CssClass="popup-button" Visible="@pdfVisible"
+                  RenderStyle="ButtonRenderStyle.Primary"
+                  Text="Return to Template"
+                  Click="@OnReturnToTemplate" />
+        <DxButton CssClass="popup-button"
+                  RenderStyle="ButtonRenderStyle.Primary"
+                  Text=@OkButtonText
+                  Click="@AffirmativeButtonClicked" />
+        <DxButton CssClass="popup-button" Visible=@IsEmailOrSMS
+                  RenderStyle="ButtonRenderStyle.Secondary"
+                  Text="Cancel" Click="@NegativeButtonClicked" />
+    </FooterContentTemplate>
+</DxPopup>
+<style>
+    .icon-size {
+        font-size: 16px;
+    }
+</style>
+
+@code {
+
+    [Parameter, EditorRequired]
+    public U3ADbContext dbContext { get; set; }
+    [Parameter, EditorRequired]
+    public List<DocumentTemplate> DocumentTemplates { get; set; }
+    [Parameter, EditorRequired]
+    public List<Person> SendTo { get; set; }
+    [Parameter]
+    public DocumentTemplate SelectedDocumentTemplate { get; set; }
+    [Parameter]
+    public bool OverrideCommunicationPreference { get; set; }
+
+    List<ExportData>? ExportData;
+    MessageBox? messageBox;
+
+    int ActiveTabIndex = 1;
+    bool pdfVisible;
+    string pdfContent;
+    bool popupVisible;
+    DxPopup? popup;
+    DxRichEdit? richEdit;
+    DxRichEdit? rePreview;
+    Document documentAPI;
+    bool IsEmail;
+    bool IsEmailOrPostal;
+    bool IsEmailOrSMS;
+    string OkButtonText = "Ok";
+    string FromDisplayNameText;
+    IEnumerable<string?> emailAddresses = new List<string>();
+    IEnumerable<string?> displayNames = new List<string>();
+
+    TaskCompletionSource<bool>? tcs;
+
+    public Task<bool> ShowAsync() {
+        IsEmailOrPostal = false;
+        IsEmailOrSMS = false;
+        IsEmail = false;
+        ActiveTabIndex = 1;
+        pdfVisible = false;
+        SelectedDocumentTemplate = new DocumentTemplate();
+        emailAddresses = DocumentTemplates
+                            .OrderBy(x => x.FromEmailAddress)
+                            .Where(x => x.FromEmailAddress != null)
+                            .Select(x => x.FromEmailAddress.ToLower()).Distinct().ToList();
+        popupVisible = true;
+        tcs = new TaskCompletionSource<bool>();
+        tcs.Task.ContinueWith(_ => {
+            popupVisible = false;
+        });
+        StateHasChanged();
+        return tcs.Task;
+    }
+
+    async Task AffirmativeButtonClicked() {
+        if (!await IsDataOK()) { return; }
+        await richEdit.SaveDocumentAsync();
+        popupVisible = false;
+        if (SelectedDocumentTemplate == null ||
+                    SelectedDocumentTemplate.DocumentType == null ||
+                    SelectedDocumentTemplate.DocumentType.IsPostal) {
+            tcs?.SetResult(false);
+        }
+        else {
+            tcs?.SetResult(true);
+        }
+    }
+    void NegativeButtonClicked() {
+        popupVisible = false;
+        tcs?.SetResult(false);
+    }
+
+    async Task<bool> IsDataOK() {
+        bool result = true;
+        if (SelectedDocumentTemplate.DocumentType.Name == "Email")
+        {
+            var settings = await dbContext.SystemSettings.FirstOrDefaultAsync();
+            string[]? defaultSplits = settings?.SendEmailAddesss.Split("@");
+            string[]? fromSplits = SelectedDocumentTemplate.FromEmailAddress?.Split("@");
+            if (fromSplits?.Count() > 0 && defaultSplits?.Count() > 0)
+            {
+                if (fromSplits[1].ToLower().Trim() != defaultSplits[1].ToLower().Trim())
+                {
+                    _ = await messageBox.ShowOkOnlyAsync("Invalid Domain", $"Your From Email address must end: @{defaultSplits[1]}.");
+                    result = false;
+                }
+            }
+        }
+        return result;
+    }
+
+    async Task SelectedTemplateChanged(DocumentTemplate template) {
+        SelectedDocumentTemplate = template;
+        IsEmail = SelectedDocumentTemplate.DocumentType.IsEmail;
+        IsEmailOrPostal = SelectedDocumentTemplate.DocumentType.IsEmail ||
+                                SelectedDocumentTemplate.DocumentType.IsPostal;
+        IsEmailOrSMS = SelectedDocumentTemplate.DocumentType.IsEmail ||
+                                SelectedDocumentTemplate.DocumentType.IsSMS;
+        ExportData = await BusinessRule.GetExportDataAsync(dbContext, SendTo);
+        ActiveTabIndex = 0;
+        switch (template.DocumentType.Name) {
+            case "Postal":
+                OkButtonText = "Ok";
+                break;
+            case "Email":
+                FromDisplayNameText = "From Display Name";
+                OkButtonText = "Send Email!";
+                break;
+            case "SMS":
+                FromDisplayNameText = "From (11 Chars Max)";
+                OkButtonText = "Send SMS!";
+                break;
+            default:
+                break;
+        }
+        SelectedEmailAddressChanged(SelectedDocumentTemplate.FromEmailAddress);
+        StateHasChanged();
+    }
+
+    void SelectedDocTypeChanged(DocumentType DocType, DocumentTemplate editItem) {
+        editItem.DocumentType = DocType;
+        SelectedEmailAddressChanged(editItem.FromEmailAddress);
+    }
+
+    void SelectedEmailAddressChanged(string emailAddress) {
+        switch (SelectedDocumentTemplate.DocumentType.Name) {
+            case "Email":
+                SelectedDocumentTemplate.FromEmailAddress = emailAddress;
+                displayNames = DocumentTemplates
+                                    .OrderBy(x => x.FromDisplayName)
+                                    .Where(x => x.FromEmailAddress?.ToLower() == emailAddress)
+                                    .Select(x => x.FromDisplayName).Distinct().ToList();
+                SelectedDocumentTemplate.FromDisplayName = displayNames.FirstOrDefault();
+                break;
+            case "SMS":
+                displayNames = DocumentTemplates
+                                    .OrderBy(x => x.FromDisplayName)
+                                    .Where(x => x.DocumentType.Name == "SMS")
+                                    .Select(x => x.FromDisplayName).Distinct().ToList();
+                SelectedDocumentTemplate.FromDisplayName = displayNames.FirstOrDefault();
+                break;
+            default:
+                break;
+        }
+    }
+
+    async Task OnDocumentContentChanged() {
+        SelectedDocumentTemplate.Content = richEdit.DocumentContent;
+    }
+
+    async Task OnDocumentLoaded(Document doc) {
+        await richEdit.DocumentAPI.Fields.ShowAllFieldCodesAsync(true);
+        try {
+            documentAPI = richEdit.DocumentAPI;
+            var sections = await documentAPI.Sections.GetAllAsync();
+            foreach (Section s in sections)
+                await s.ChangePropertiesAsync(properties => {
+                    if (properties.PaperKind == System.Drawing.Printing.PaperKind.Letter)
+                        properties.PaperKind = System.Drawing.Printing.PaperKind.A4;
+                });
+        }
+        catch (OperationCanceledException e) {
+            Console.WriteLine($"{nameof(OperationCanceledException)} thrown with message: {e.Message}");
+        }
+    }
+
+    void OnCustomizeRichEditToolbar(IRibbon ribbon) {
+        ribbon.Tabs.Clear();
+        IRibbonTab newFileTab = ribbon.Tabs.AddCustomTab("File");
+        IBarGroup newFileGroup = newFileTab.Groups.AddCustomGroup(0);
+        //newFileGroup.Items.Add(RichEditBarItemNames.SaveDocument);
+        IBarButton mm = newFileGroup.Items.AddCustomButton("Mail Merge", MailMergeDocumentAsync);
+        mm.IconCssClass = "icon-size bi-envelope";
+        //newFileGroup.Items.Add(RichEditBarItemNames.PrintDocument);
+        ribbon.Tabs.Add("Home");
+        ribbon.Tabs.Add("Insert");
+        ribbon.Tabs.Add("View");
+    }
+
+    async Task MailMergeDocumentAsync() {
+        if (SelectedDocumentTemplate != null) {
+            richEdit.DocumentAPI.BeginUpdate();
+            await richEdit.SaveDocumentAsync();
+            var server = new DocumentServer(dbContext);
+            pdfContent = server.MergeDocumentAsPdf(SelectedDocumentTemplate,
+                                                        ExportData, OverrideCommunicationPreference);
+            richEdit.DocumentAPI.EndUpdate();
+            pdfVisible = true;
+            StateHasChanged();
+        }
+    }
+
+    void OnReturnToTemplate() {
+        pdfVisible = false;
+        StateHasChanged();
+    }
+}

@@ -1,0 +1,219 @@
+﻿@page "/MemberPortal"
+
+@layout BasicLayout
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@inject IJSRuntime js
+@implements IDisposable
+@inject NavigationManager NavigationManager
+@inject SignInManager<IdentityUser> SignInMgr
+@using Microsoft.AspNetCore.Identity
+@using U3A.UI.Forms
+
+@attribute [Authorize]
+
+@if (!IsReady) {
+    <p><em>Loading...</em></p>
+}
+else {
+
+    <DxLayoutBreakpoint MinWidth="1200"
+                    @bind-IsActive="@IsSmallLayout" />
+
+    <MessageBox @ref="@messageBox" />
+
+    <DxFormLayout CssClass="pt-2">
+        @switch (menuSelection) {
+            case PortalMenuSelection.DoSelectLinkedMember:
+                <GetLinkedPerson OnSelectedOptionCompleted="OnSelectedOptionCompleted" />
+                break;
+
+            case PortalMenuSelection.ShowMenu:
+                <MemberPortalMenu OnMenuOptionSelected="OnMenuOptionSelected" />
+                break;
+
+            case PortalMenuSelection.DoMemberMaintenance:
+                <MemberDetails IsNewLinkedMember=false OnSelectedOptionCompleted="OnSelectedOptionCompleted" />
+                break;
+
+            case PortalMenuSelection.DoLinkNewMember:
+                <MemberDetails IsNewLinkedMember=true OnSelectedOptionCompleted="OnSelectedOptionCompleted" />
+                break;
+
+            case PortalMenuSelection.DoLinkExistingMember:
+                <LinkExistingMember OnSelectedOptionCompleted="OnSelectedOptionCompleted" />
+                break;
+
+            case PortalMenuSelection.DoUnlinkMember:
+                <UnlinkMember OnSelectedOptionCompleted="OnSelectedOptionCompleted" />
+                break;
+
+            case PortalMenuSelection.DoMemberPayment:
+                <MemberPayment OnSelectedOptionCompleted="OnSelectedOptionCompleted" />
+                break;
+
+            case PortalMenuSelection.DoEditMemberEnrolment:
+                <MemberEnrolment DbContext="dbc"
+                     IsReadOnly=false OnSelectedOptionCompleted="OnSelectedOptionCompleted" />
+                break;
+            case PortalMenuSelection.DoViewMemberEnrolment:
+                <MemberEnrolment DbContext="dbc"
+                     IsReadOnly=true OnSelectedOptionCompleted="OnSelectedOptionCompleted" />
+                break;
+            case PortalMenuSelection.DoShowLeaderMenu:
+                <LeaderMenu OnSelectedOptionCompleted="OnSelectedOptionCompleted" />
+                break;
+            case PortalMenuSelection.DoWhatsOn:
+                <CourseSchedule IsPortal=true />
+                break;
+        }
+    </DxFormLayout>
+}
+
+
+
+@code {
+
+    [CascadingParameter]
+    LoginState? loginState { get; set; }
+
+    [CascadingParameter(Name = "QueryResult")]
+    string? QueryResult { get; set; }
+
+    [CascadingParameter]
+    public Progress? ProgressBar { get; set; }
+
+    bool IsReady;
+    bool IsProcessing;
+    bool IsSmallLayout;
+    bool IsNewLinkedMember;
+    U3ADbContext? dbc;
+    SystemSettings? settings;
+    Term? term;
+    MarkupString? message;
+    MessageBox messageBox;
+    PortalMenuSelection menuSelection;
+    string Title;
+    string? SuccessMsg = null;
+
+    protected override async Task OnInitializedAsync() {
+        await base.OnInitializedAsync();
+        IsReady = false;
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+        term = BusinessRule.CurrentEnrolmentTerm(dbc);
+        if (term == null) {
+            term = await BusinessRule.CurrentTermAsync(dbc);
+        }
+        settings = await dbc.SystemSettings.FirstOrDefaultAsync();
+        Title = settings?.U3AGroup;
+        IsReady = true;
+    }
+
+    protected override async Task OnParametersSetAsync() {
+        await base.OnParametersSetAsync();
+        using (var dbc = U3Adbfactory.CreateDbContext()) {
+            bool hasUnprocessedPayments = await BusinessRule.HasUnporcessedOnlinePayment(dbc, loginState.SelectedPerson);
+            if (hasUnprocessedPayments) {
+                menuSelection = PortalMenuSelection.DoMemberPayment;
+            }
+            else {
+                menuSelection = PortalMenuSelection.ShowMenu;
+            }
+        }
+    }
+
+    void EnsureSelectedPersonSet() {
+        if (loginState.LinkedPeople.Count() > 1 && loginState.SelectedPerson == null) {
+            menuSelection = PortalMenuSelection.GetLinkedPerson;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender) {
+        if (firstRender) {
+            EnsureSelectedPersonSet();
+            using (var dbc = await U3Adbfactory.CreateDbContextAsync()) {
+                if (loginState.SelectedPerson != null && await BusinessRule.HasUnporcessedOnlinePayment(dbc, loginState.SelectedPerson)) {
+                    menuSelection = PortalMenuSelection.DoMemberPayment;
+                    StateHasChanged();
+                }
+            }
+        }
+        await base.OnAfterRenderAsync(firstRender);
+    }
+
+    void OnChangeCredential(MouseEventArgs e, string page) {
+        NavigationManager.NavigateTo("Identity/Account/Manage/" + page, true);
+    }
+
+    async Task OnMenuOptionSelected(PortalMenuSelection selection) {
+        if (await IsSelectionOK(selection)) {
+            menuSelection = selection;
+        }
+        else {
+            menuSelection = PortalMenuSelection.ShowMenu;
+        }
+    }
+
+    async Task<bool> IsSelectionOK(PortalMenuSelection selection) {
+        bool result = true;
+        string msg = string.Empty;
+        switch (selection) {
+            case PortalMenuSelection.DoMemberMaintenance:
+                break;
+            case PortalMenuSelection.NotImplemented:
+                msg = "We're sorry. That option is yet to be implemented.";
+                await messageBox.ShowOkOnlyAsync("Option Unavailable", msg);
+                result = false;
+                break;
+            case PortalMenuSelection.DoEditMemberEnrolment:
+                if (result = await AreMemberDetailsOK()) {
+                    if (loginState.SelectedPerson.FinancialTo < term.Year) {
+                        await messageBox.ShowOkOnlyAsync("Your financial status",
+                        "<p>You are currently unfinancial.</p><p>You may continue with enrolment but your requests will remain Waitlisted " +
+                        "until membership fees are paid. Only then will your requests participate in the enrolment selection process<p>");
+                    }
+                }
+                break;
+            case PortalMenuSelection.DoMemberPayment:
+                result = await AreMemberDetailsOK();
+                break;
+            default:
+                result = await AreMemberDetailsOK();
+                break;
+        }
+        return result;
+    }
+
+    async Task<bool> AreMemberDetailsOK() {
+        bool result = true;
+        if (loginState.SelectedPerson == null) {
+            var msg = "You must provide your member details before selecting this option.";
+            await messageBox.ShowOkOnlyAsync("Option Unavailable", msg);
+            result = false;
+        }
+        else {
+            if (term == null) {
+                var msg = "Please contact your enrolment officer. Current and Enrolment terms not defined.";
+                await messageBox.ShowOkOnlyAsync("Option Unavailable", msg);
+                result = false;
+            }
+        }
+        return result;
+    }
+    async Task OnSelectedOptionCompleted(PortalMenuResult result) {
+        switch (result) {
+            case PortalMenuResult.EnrolmentCancelledTermNotDefined:
+                await messageBox.ShowOkOnlyAsync("Out of enrolment period",
+                        "We're sorry. Our enrolment period is curruently closed. Please try again later.");
+                menuSelection = PortalMenuSelection.ShowMenu;
+                break;
+            default:
+                menuSelection = PortalMenuSelection.ShowMenu;
+                break;
+        }
+        StateHasChanged();
+    }
+
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+}

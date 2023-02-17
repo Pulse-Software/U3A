@@ -1,0 +1,251 @@
+﻿@using U3A.UI.Forms
+@using Microsoft.AspNetCore.Http
+@using Finbuckle.MultiTenant
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity;
+@using Microsoft.JSInterop
+
+@inject IJSRuntime js
+@inject TenantInfoEx tenantInfo
+@inject UserManager<IdentityUser> UserManager
+@inject RoleManager<IdentityRole> RoleManager
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@inject Blazored.LocalStorage.ILocalStorageService localStorage
+@inject NavigationManager NavigationManager
+@implements IDisposable;
+
+
+@{
+    //Try get TenantInfo.
+    GetTenantInfo();
+
+
+    <div class="card w-100">
+        <div class="d-print-none card-body p-0">
+            <DxMenu Title="@Title" ItemClick="OnItemClick"
+                DropDownActionMode="MenuDropDownActionMode.Click"
+                ItemsPosition="ItemPosition.End"
+                CollapseItemsToHamburgerMenu="true">
+                <TitleTemplate>
+                    <span><img src="images/U3ALogo.png" alt="@context">&nbsp;@Title</span>
+                </TitleTemplate>
+                <Items>
+                    @{
+                        if (isAuthenticated) {
+
+                            if (isSystemAdmin) {
+                                <DxMenuItem Text="Admin" IconCssClass="bi-menu-button-fill menu-icon">
+                                    <Items>
+                                        @if (isSecurityAdmin) {
+                                                <DxMenuItem Text="Login Security &amp; Role Assignment" NavigateUrl="IdentityUserMnt" />
+                                        }
+                                        <DxMenuItem Text="Organisation Details" NavigateUrl="OrganisationDetailsMnt" />
+                                        <DxMenuItem Text="Membership Fees" NavigateUrl="MembershipFeesMnt" />
+                                        <DxMenuItem Text="Add/Edit Document Templates" NavigateUrl="DocumentTemplateMnt" />
+                                        <DxMenuItem Text="Report Designer" NavigateUrl="ReportDesigner" />
+                                        <DxMenuItem Text="Service Providers">
+                                            <Items>
+                                                <DxMenuItem Text="Postmark Email login" NavigateUrl="https://www.postmarkapp.com/" />
+                                                <DxMenuItem Text="SendGrid Email login" NavigateUrl="https://app.sendgrid.com/" />
+                                                <DxMenuItem Text="Twilio SMS login" NavigateUrl="https://console.twilio.com/" />
+                                            </Items>
+                                        </DxMenuItem>
+                                    </Items>
+                                </DxMenuItem>
+                            }
+
+                            if (isSystemAdmin | isCourse) {
+                                <DxMenuItem Text="Course" IconCssClass="bi-menu-button-fill menu-icon">
+                                    <Items>
+                                        <DxMenuItem Text="Add/Edit Course Types" NavigateUrl="CourseTypeMnt" />
+                                        <DxMenuItem Text="Add/Edit Venues" NavigateUrl="VenueMnt" />
+                                        <DxMenuItem Text="Add/Edit Enrolment Terms" NavigateUrl="TermMnt" />
+                                        <DxMenuItem Text="Add/Edit Public Holidays" NavigateUrl="PublicHolidayMnt" />
+                                        <DxMenuItem Text="Add/Edit Courses" NavigateUrl="CourseMnt" />
+                                        <DxMenuItem Text="Bring Forward Courses" NavigateUrl="BringForwardCourses" BeginGroup="true" />
+                                        <DxMenuItem Text="Cancel Class" NavigateUrl="CancelClassMnt" />
+                                        <DxMenuItem Text="Course Schedule" NavigateUrl="CourseSchedule" />
+                                    </Items>
+                                </DxMenuItem>
+                            }
+
+                            if (isSystemAdmin | isClerical) {
+                                <DxMenuItem Text="Participation" IconCssClass="bi-menu-button menu-icon">
+                                    <Items>
+                                        <DxMenuItem Text="Participant Data Import" NavigateUrl="ParticipantDataImport" />
+                                        <DxMenuItem Text="Fees &amp; Receipting">
+                                            <Items>
+                                                <DxMenuItem Text="Member Portal (Admin)" NavigateUrl="AdminMemberPortal" />
+                                                <DxMenuItem Text="Bank Data Import" NavigateUrl="BankDataImport" Enabled="@(isSystemAdmin | isAccounting)" />
+                                                <DxMenuItem Text="Receipt Adjustments" NavigateUrl="ReceiptMnt" Enabled="@(isSystemAdmin | isAccounting)" />
+                                                <DxMenuItem Text="Fee Adjustments" NavigateUrl="FeeMnt" Enabled="@(isSystemAdmin | isAccounting)" />
+                                                <DxMenuItem Text="Complimentary Membership" NavigateUrl="AssignComplimentaryMembership" Enabled="@(isSystemAdmin | isAccounting)" />
+                                                <DxMenuItem BeginGroup="true" Text="Receipts By Participant" NavigateUrl="XtraReportViewer/CashReceiptsByParticipantRpt" />
+                                                <DxMenuItem Text="Receipts By Date" NavigateUrl="XtraReportViewer/CashReceiptsByDateRpt" />
+                                                <DxMenuItem Text="Complimentary Membership Report" NavigateUrl="XtraReportViewer/ComplimentaryMembershipRpt" />
+                                                <DxMenuItem Text="Financial Status Enquiry" NavigateUrl="FinancialStatusEnquiry" />
+                                            </Items>
+                                        </DxMenuItem>
+                                        <DxMenuItem Text="Send Correspondence" NavigateUrl="SendCorrespondence" />
+                                        <DxMenuItem Text="Add/Edit Participants" NavigateUrl="PersonMnt" />
+                                        <DxMenuItem Text="Add/Edit Committee" NavigateUrl="CommitteeMnt" />
+                                        <DxMenuItem Text="Add/Edit Volunteers" NavigateUrl="VolunteerMnt" />
+                                        <DxMenuItem Text="Enrol Participants" NavigateUrl="EnrolMnt" />
+                                        <DxMenuItem Text="Review Class Dropouts" NavigateUrl="ReviewDropouts" />
+                                        <DxMenuItem Text="Class Attendance" NavigateUrl="AttendClassMnt" />
+                                        <DxMenuItem BeginGroup=true Text="Bring Forward Enrolments" NavigateUrl="BringForwardEnrolments"Enabled="@(isSystemAdmin)" />
+                                        <DxMenuItem Text="Auto-Enrol Participants" NavigateUrl="AutoEnrolParticipants"Enabled="@(isSystemAdmin)" />
+                                    </Items>
+                                </DxMenuItem>
+                            }
+
+                            if (isSystemAdmin | isCourse | isClerical | isReportView) {
+                                <DxMenuItem Text="Reports" IconCssClass="bi-printer menu-icon">
+                                    <Items>
+                                        <DxMenuItem Text="Listings">
+                                            <Items>
+                                                <DxMenuItem Text="Course Type List" NavigateUrl="XtraReportViewer/CourseTypeList" />
+                                                <DxMenuItem Text="Venue List" NavigateUrl="XtraReportViewer/VenueList" />
+                                                <DxMenuItem Text="Public Holiday List" NavigateUrl="XtraReportViewer/PublicHolidayList" />
+                                            </Items>
+                                        </DxMenuItem>
+                                        <DxMenuItem Text="Participant Reports">
+                                            <Items>
+                                                <DxMenuItem Text="New Participant List" NavigateUrl="XtraReportViewer/NewParticipantList" />
+                                                <DxMenuItem Text="Life Member List" NavigateUrl="XtraReportViewer/LifeMembersList" />
+                                                <DxMenuItem Text="Ceased Participant List" NavigateUrl="XtraReportViewer/CeasedParticipantList" />
+                                                <DxMenuItem Text="Volunteer List" NavigateUrl="XtraReportViewer/VolunteerList" />
+                                                <DxMenuItem Text="Participant Skills List" NavigateUrl="XtraReportViewer/SkillsList" />
+                                                <DxMenuItem Text="Summary Participant List" NavigateUrl="XtraReportViewer/SummaryParticipantList" />
+                                                <DxMenuItem Text="Duplicate Participant List" NavigateUrl="XtraReportViewer/DuplicateParticipantList" />
+                                                <DxMenuItem Text="Mail Labels" NavigateUrl="XtraReportViewer/MaillingLabels" />
+                                            </Items>
+                                        </DxMenuItem>
+                                        <DxMenuItem Text="Leader Reports" NavigateUrl="LeaderReports" />
+                                        <DxMenuItem Text="Course, Class &amp; Schedule">
+                                            <Items>
+                                                <DxMenuItem Text="Course Listing" NavigateUrl="XtraReportViewer/CourseList" />
+                                                <DxMenuItem Text="Class Schedule" NavigateUrl="XtraReportViewer/ClassScheduleRpt" />
+                                                <DxMenuItem Text="Public Class Schedule" NavigateUrl="public/ClassScheduleView" />
+                                                <DxMenuItem Text="Course Type Analysis" NavigateUrl="XtraReportViewer/CourseTypeAnalysis" />
+                                                <DxMenuItem Text="Course By Venue List" NavigateUrl="XtraReportViewer/CourseByVenueList" />
+                                                <DxMenuItem Text="Course By Leader List" NavigateUrl="XtraReportViewer/CourseByLeaderList" />
+                                                <DxMenuItem Text="Course By Participant List" NavigateUrl="XtraReportViewer/CourseByParticipantList" />
+                                                <DxMenuItem Text="Enrolment Report" NavigateUrl="XtraReportViewer/EnrolmentReport" />
+                                                <DxMenuItem Text="Venue Conflicts List" NavigateUrl="XtraReportViewer/VenueConflictList" />
+                                            </Items>
+                                        </DxMenuItem>
+                                        <DxMenuItem Text="Data Import Error Report" NavigateUrl="XtraReportViewer/DataImportErrorReport" />
+                                    </Items>
+                                </DxMenuItem>
+                            }
+
+                            <DxMenuItem IconCssClass="bi-shield menu-icon" title="Account">
+                                <Items>
+                                    <DxMenuItem Text="Logout" NavigateUrl="Identity/Account/LogOut" />
+                                </Items>
+                            </DxMenuItem>
+                            <DxMenuItem IconCssClass="bi-house menu-icon" title="Home" NavigateUrl="./" />
+                            <DxMenuItem IconCssClass="bi-palette menu-icon" title="Theme">
+                                <Items>
+                                    <DxMenuItem Text="Office White" />
+                                    <DxMenuItem Text="Blazing Berry" />
+                                    <DxMenuItem Text="Blazing Dark" />
+                                    <DxMenuItem Text="Purple" />
+                                    <DxMenuItem BeginGroup="true" IconCssClass="bi-clock menu-icon" Text="Clock" NavigateUrl="Clock" />
+                                </Items>
+                            </DxMenuItem>
+                        }
+                    }
+                </Items>
+            </DxMenu>
+        </div>
+    </div>
+
+    <MessageBox @ref="@messageBox" />
+
+}
+<style>
+    .icon-logo {
+        display: flex;
+        height: 20px;
+        width: 81px;
+        background-color: currentColor;
+        mask-repeat: no-repeat;
+        -webkit-mask-repeat: no-repeat;
+        mask-image: url("images/u3alogo.png");
+        -webkit-mask-image: url("images/u3alogo.png");
+    }
+</style>
+
+@code {
+    [Parameter]
+    public string? StateCssClass { get; set; }
+
+    U3ADbContext dbc { get; set; }
+    MessageBox? messageBox;
+
+    bool isAuthenticated { get; set; }
+    bool isSecurityAdmin { get; set; }
+    bool isSystemAdmin { get; set; }
+    bool isMembership { get; set; }
+    bool isAccounting { get; set; }
+    bool isClerical { get; set; }
+    bool isCourse { get; set; }
+    bool isReportView { get; set; }
+    string user { get; set; }
+    string Title = string.Empty;
+
+    List<string> nameOfRoles = new List<string>() { "Security Administrator",
+                                                "System Administrator",
+                                                "Course and Class",
+                                                "Membership",
+                                                "Accounting",
+                                                 "Report View"};
+    string superAdmin = "SuperAdmin@U3A.com.au";
+
+    [CascadingParameter]
+    Task<AuthenticationState> authenticationStateTask { get; set; }
+
+    protected override async Task OnInitializedAsync() {
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+    }
+
+    protected override async Task OnParametersSetAsync() {
+        var authenticationState = await authenticationStateTask;
+        isAuthenticated = authenticationState.User.Identity.IsAuthenticated;
+        user = authenticationState.User.Identity.Name;
+        isSecurityAdmin = authenticationState.User.IsInRole("Security Administrator");
+        isSystemAdmin = authenticationState.User.IsInRole("System Administrator");
+        isMembership = authenticationState.User.IsInRole("Membership");
+        isAccounting = authenticationState.User.IsInRole("Accounting");
+        isCourse = authenticationState.User.IsInRole("Course and Class");
+        isReportView = authenticationState.User.IsInRole("Report View");
+        isClerical = authenticationState.User.IsInRole("Membership") |
+                        authenticationState.User.IsInRole("Accounting");
+    }
+
+    void GetTenantInfo() {
+        Title = "Tenant Details Not Found";
+        if (tenantInfo != null) { Title = tenantInfo.Name; }
+    }
+
+    string[] themes = new string[] { "office white", "blazing berry", "blazing dark", "purple" };
+    async void OnItemClick(MenuItemClickEventArgs e) {
+        var name = e.ItemInfo.Text;
+        if (!string.IsNullOrWhiteSpace(name)) {
+            if (themes.Contains(name.ToLower())) {
+                var theme = name.ToLower().Replace(" ", "-");
+                await localStorage.SetItemAsync("theme", theme);
+                NavigationManager.NavigateTo("/", true);
+            }
+        }
+    }
+
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+
+}
+

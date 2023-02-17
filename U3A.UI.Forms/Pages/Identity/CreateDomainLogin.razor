@@ -1,0 +1,167 @@
+﻿@inject UserManager<IdentityUser> UserManager
+@inject SignInManager<IdentityUser> SignInManager
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.JSInterop
+@using Microsoft.AspNetCore.Identity
+@using System.ComponentModel.DataAnnotations;
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+
+<MessageBox @ref="@msgBox" />
+<DxPopup Visible="@popupVisible" @ref="@popup"
+         CloseButtonClick="@NegativeButtonClicked"
+         CloseOnEscape="false"
+         CloseOnOutsideClick="false"
+         ShowFooter="true"
+         HeaderText="Create Domain Login">
+    <BodyTemplate Context="PopupContext">
+        <DxFormLayout CssClass="m-2">
+            <div class="m-2">
+                A domain-level login is one not usually associated with a Participant.<br />
+                It is most often used to grant a group of users common access to the administraive portal.
+                For example, @GetExampleEmail().
+            </div>
+            <DxFormLayoutItem Caption="Login" ColSpanSm="6">
+                <DxTextBox @bind-Text="@login"></DxTextBox>
+            </DxFormLayoutItem>
+            <div class="col-5 m-auto">@GetDomain()</div>
+            <DxFormLayoutItem Caption="Password" ColSpanMd="12">
+                <DxTextBox @bind-Text="@password" Password="true"></DxTextBox>
+            </DxFormLayoutItem>
+            <DxFormLayoutItem Caption="Confirm Password" ColSpanMd="12">
+                <DxTextBox @bind-Text="@confirmPassword" Password="true"></DxTextBox>
+            </DxFormLayoutItem>
+            <DxFormLayoutItem Caption="User Roles" ColSpanMd="12">
+                <DxTagBox Data="@Roles" ClearButtonDisplayMode="DataEditorClearButtonDisplayMode.Auto"
+                          @bind-Values="@SelectedRoles">
+                </DxTagBox>
+            </DxFormLayoutItem>
+        </DxFormLayout>
+    </BodyTemplate>
+    <FooterContentTemplate>
+        <DxButton CssClass="popup-button"
+                  RenderStyle="ButtonRenderStyle.Primary"
+                  Text="Create!"
+                  Click="@AffirmativeButtonClicked" />
+        <DxButton CssClass="popup-button"
+                  RenderStyle="ButtonRenderStyle.Secondary"
+                  Text="Cancel" Click="@NegativeButtonClicked" />
+    </FooterContentTemplate>
+</DxPopup>
+
+@code {
+
+    [Parameter]
+    public IEnumerable<IdentityRole> Roles { get; set; }
+    [Parameter]
+    public SystemSettings Settings { get; set; }
+
+    [Required]
+    string? login;
+    string? password;
+    string? confirmPassword;
+    public IEnumerable<IdentityRole>? SelectedRoles { get; set; }
+    MessageBox? msgBox;
+
+    bool popupVisible { get; set; }
+    DxPopup? popup;
+
+    TaskCompletionSource<bool>? tcs;
+
+
+    public Task<bool> ShowAsync() {
+        login = null;
+        password = null;
+        confirmPassword = null;
+        SelectedRoles = new List<IdentityRole>();
+        popupVisible = true;
+        tcs = new TaskCompletionSource<bool>();
+        tcs.Task.ContinueWith(_ => {
+            popupVisible = false;
+        });
+        StateHasChanged();
+        return tcs.Task;
+    }
+
+    async Task Process() {
+        var email = $"{login?.Trim()}{GetDomain().Trim()}";
+        var user = await UserManager.FindByEmailAsync(email);
+        if (user == null) {
+            var hasher = new PasswordHasher<IdentityUser>();
+            user = new IdentityUser() {
+                    Email = email,
+                    UserName = email,
+                    EmailConfirmed = true,
+                    PasswordHash = hasher.HashPassword(null, password)
+                };
+            await UserManager.CreateAsync(user);
+            foreach (var r in SelectedRoles) {
+                await UserManager.AddToRoleAsync(user, r.Name);
+            }
+            await msgBox.ShowOkOnlyAsync("Login created", $"<strong>{email}</strong> has been created!");
+        }
+        else {
+            await msgBox.ShowOkOnlyAsync("Login not created", $"<p class='text-danger'><strong>{email}</strong> is already on file!</p>");
+        }
+    }
+
+    async Task<bool> IsDataOk() {
+        bool result = true;
+        var email = $"{login?.Trim()}{GetDomain().Trim()}";
+        string msg = string.Empty;
+        var count = 1;
+        if (!IsValidEmail(email)) {
+            msg += $"{count++}. <strong>{email}:</strong> is not a valid email address.<br/>";
+        }
+        if (password != confirmPassword) {
+            msg += $"{count++}. Pasword and Confirm Password do not match.<br/>";
+        }
+        if (SelectedRoles?.Count() == 0) {
+            msg += $"{count++}. At least one role is required.<br/>";
+        }
+        if (!string.IsNullOrWhiteSpace(msg)) {
+            await msgBox.ShowOkOnlyAsync("Errors in input", msg);
+            result = false;
+        }
+        return result;
+    }
+
+    bool IsValidEmail(string email) {
+        var trimmedEmail = email.Trim();
+        if (trimmedEmail.EndsWith(".")) {
+            return false; // suggested by @TK-421
+        }
+        try {
+            var addr = new System.Net.Mail.MailAddress(email);
+            return addr.Address == trimmedEmail;
+        }
+        catch {
+            return false;
+        }
+    }
+
+    string GetDomain() {
+        string[] splits = Settings.SendEmailAddesss.Split("@");
+        return $"@{splits?[1]}";
+    }
+    string GetExampleEmail() {
+        return $"office{GetDomain()}";
+    }
+
+    bool isProcessing;
+    async Task AffirmativeButtonClicked() {
+        if (isProcessing) return;
+        isProcessing = true;
+        if (await IsDataOk()) {
+            await Process();
+            popupVisible = false;
+            tcs?.SetResult(true);
+        }
+        isProcessing = false;
+    }
+    void NegativeButtonClicked() {
+        popupVisible = false;
+        tcs?.SetResult(false);
+    }
+
+}

@@ -1,0 +1,62 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <PropertyGroup>
+    <TargetFramework>net7.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+	  <WarningLevel>0</WarningLevel>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="Pages\MembersPortal\MemberPortalMenu.razor.css" />
+  </ItemGroup>
+
+
+  <ItemGroup>
+    <SupportedPlatform Include="browser" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Blazored.LocalStorage" Version="4.3.0" />
+    <PackageReference Include="DevExpress.Blazor" Version="22.2.4" />
+    <PackageReference Include="DevExpress.Blazor.RichEdit" Version="22.2.4" />
+    <PackageReference Include="DevExpress.DataAccess" Version="22.2.4" />
+    <PackageReference Include="DevExpress.RichEdit.Core" Version="22.2.4" />
+    <PackageReference Include="Eway.Rapid.Standard" Version="1.0.0" />
+    <PackageReference Include="Eway.Rapid.Standard.Abstractions" Version="1.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Authorization" Version="7.0.3" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="7.0.3" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity.UI" Version="7.0.3" />
+    <PackageReference Include="Microsoft.Extensions.Localization" Version="7.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\U3A.Data\U3A.Database.csproj" />
+    <ProjectReference Include="..\U3A.Model\U3A.Model.csproj" />
+    <ProjectReference Include="..\U3A.Services\U3A.Services.csproj" />
+    <ProjectReference Include="..\U3A.UI.Reports\U3A.UI.Reports.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="OFXParser">
+      <HintPath>..\..\ofxparser.net\OFXParser\bin\Release\netstandard2.0\OFXParser.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Update="ComplimentaryMembershipRpt.cs">
+      <SubType>XtraReport</SubType>
+    </Compile>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Update="Pages\Participation Pages\ReceiptMnt.razor">
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="wwwroot\" />
+  </ItemGroup>
+
+</Project>

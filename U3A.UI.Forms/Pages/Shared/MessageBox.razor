@@ -1,0 +1,109 @@
+﻿<DxPopup Visible="@PopupVisible" @ref="@messageBox" Width="@PopupWidth"
+         ApplyBackgroundShading="true"
+         CloseButtonClick="@NegativeButtonClicked"
+         CloseOnEscape="false"
+         CloseOnOutsideClick="false"
+         ShowFooter="true"
+         HeaderText=@mCaption>
+    <BodyContentTemplate Context="PopupContext">
+        @(new MarkupString(mMessage))
+    </BodyContentTemplate>
+    <FooterContentTemplate>
+        <DxButton CssClass="popup-button" Visible="@mShowOkButton"
+                  RenderStyle="ButtonRenderStyle.Primary"
+                  Text="@mOKButtonText"
+                  Click="@AffirmativeButtonClicked" />
+        <DxButton CssClass="popup-button" Visible="@mShowCancelButton"
+                  RenderStyle="ButtonRenderStyle.Secondary"
+                  Text="@mCancelButtonText"
+                  Click="@NegativeButtonClicked" />
+    </FooterContentTemplate>
+</DxPopup>
+
+@code {
+    [Parameter]
+    public bool PopupVisible { get; set; }
+    [Parameter]
+    public string PopupWidth { get; set; }
+
+    DxPopup? messageBox;
+
+    string mOKButtonText { get; set; }
+    string mCancelButtonText { get; set; }
+    string mMessage { get; set; }
+    string mCaption { get; set; }
+    bool mShowCancelButton { get; set; }
+    bool mShowOkButton { get; set; } = true;
+
+    TaskCompletionSource<bool>? tcs;
+
+    public async Task SetPopupWidth(string Width){
+        PopupWidth = Width;
+        await InvokeAsync(StateHasChanged);
+    }
+    public async Task<bool> ShowAsync(MessageBoxArgs args) {
+        mOKButtonText = args.OKButtonText;
+        mCancelButtonText = args.CancelButtonText;
+        mShowCancelButton = args.ShowCancelButton;
+        mShowOkButton = args.ShowOkButton;
+        mCaption = args.Caption;
+        mMessage = args.Message;
+        return await ShowAsync();
+    }
+
+    public async Task<bool> ShowOkOnlyAsync(string Caption, string Message) {
+        mOKButtonText = "Ok";
+        mShowOkButton = true;
+        mShowCancelButton = false;
+        mCaption = Caption;
+        mMessage = Message;
+        return await ShowAsync();
+    }
+
+    public async Task ShowModalOnlyAsync(string Caption, string Message) {
+        await Task.Run(() => {
+            mShowOkButton = false;
+            mShowCancelButton = false;
+            mCaption = Caption;
+            mMessage = Message;
+            PopupVisible = true;
+        });
+        StateHasChanged();
+    }
+
+    public async Task<bool> ShowAsync(string Caption, string Message) {
+        mOKButtonText = "Ok";
+        mCancelButtonText = "Cancel";
+        mShowOkButton = true;
+        mShowCancelButton = true;
+        mCaption = Caption;
+        mMessage = Message;
+        return await ShowAsync();
+    }
+
+    public Task<bool> ShowAsync() {
+        PopupVisible = true;
+        tcs = new TaskCompletionSource<bool>();
+        tcs.Task.ContinueWith(_ => {
+            PopupVisible = false;
+        });
+        StateHasChanged();
+        return tcs.Task;
+    }
+
+    void AffirmativeButtonClicked() {
+        PopupVisible = false;
+        tcs?.TrySetResult(true);
+    }
+    void NegativeButtonClicked() {
+        PopupVisible = false;
+        tcs?.TrySetResult(false);
+    }
+
+    public async Task Close() {
+        await Task.Run(() => {
+            PopupVisible = false;
+        });
+        StateHasChanged();
+    }
+}

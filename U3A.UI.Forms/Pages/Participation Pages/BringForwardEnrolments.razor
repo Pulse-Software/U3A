@@ -1,0 +1,168 @@
+﻿@page "/BringForwardEnrolments"
+
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@inject NavigationManager NavigationManager
+@implements IDisposable
+
+
+@attribute [Authorize]
+
+@if (!IsReady) {
+    <p><em>Loading...</em></p>
+}
+else {
+
+    <div class="container-md py-md-5">
+        <div class="row">
+            <div class="col col-md-2" />
+            <div class="col col-md-8 border border-primary py-2">
+                <h3>Bring Forward Enrolments</h3>
+                    <p>
+                        This procedure will bring forward enrolments into a new term.
+                        It is intended to be used prior to the start of terms 2, 3 and 4 where participants continue with courses from the previous term.
+                    </p>
+                    <p>The procedure should only be executed when the current term is complete.</p>
+
+                    <p>The following enrolements will not be brought forward...</p>
+                    <ul>
+                        <li>Enrolments for courses that are not available in the new Term, and</li>
+                        <li>Enrolments for courses that have a Start Date</li>
+                    </ul>
+                    <p>
+                        Finally, be aware that courses are only brought forward from 
+                        the curent term to the new term. If the course was not available in the
+                        current term then enrolments cannot be brought forward. For example, 
+                        if a course is offered in Terms 1 and 4 students will not be brought forward
+                        into Term 4 using this procedure.
+                        In these cases, use <em>Enrol Participants</em> to transfer stduents from one term to another.
+                    </p>
+
+                <MessageBox @ref="@messageBox" />
+
+                <DxFormLayout Enabled=@IsProcessing>
+                    <div class="text-danger">@(new MarkupString(errorMessage))</div>
+                    <DxFormLayoutItem Caption="Current Enrolment Term" ColSpanMd="12">
+                        <DxComboBox Data="@terms" NullText="Select the Term to bring forward from."
+                                TextFieldName="@nameof(Term.TermSummary)"
+                                @bind-Value="@sourceTerm" />
+                    </DxFormLayoutItem>
+                    <DxFormLayoutItem Caption="New Enrolment Term" ColSpanMd="12">
+                        <DxComboBox Data="@terms" NullText="Select the Term to bring forward to."
+                                TextFieldName="@nameof(Term.TermSummary)"
+                                @bind-Value="@targetTerm" />
+                    </DxFormLayoutItem>
+                    <DxFormLayoutItem Caption="Set New Term to Current Term?" ColSpanMd="12">
+                        <DxCheckBox @bind-Checked="@SetCurrentTerm" />
+                    </DxFormLayoutItem>
+                    <p />
+                    <DxFormLayoutItem ColSpanMd="12">
+                        <Template>
+                            <DxButton Visible=@(!IsProcessing) Text="Process" RenderStyle="@ButtonRenderStyle.Primary" Click="@Process" />
+                            <DxButton Visible=@(!IsProcessing) Text="Cancel" RenderStyle="@ButtonRenderStyle.Secondary" Click="@Close" />
+                            <DxButton Context="buttonContext" Visible=@(IsProcessing)
+                                  RenderStyle="ButtonRenderStyle.Success" CssClass="col col-12"
+                                  RenderStyleMode="ButtonRenderStyleMode.Contained">
+                                <span class="spinner-border spinner-border-sm" role="status" />&nbsp;Processing
+                            </DxButton>
+                        </Template>
+                    </DxFormLayoutItem>
+                </DxFormLayout>
+
+            </div>
+            <div class="col col-md-2" />
+        </div>
+
+    </div>
+
+}
+@code {
+    bool IsReady;
+    bool IsProcessing;
+    bool SetCurrentTerm = true;
+    string? errorMessage;
+    SystemSettings? settings;
+    Term? sourceTerm;
+    Term? targetTerm;
+    List<Term> terms { get; set; }
+
+    MessageBox? messageBox;
+    U3ADbContext dbc { get; set; }
+
+    protected override async Task OnInitializedAsync() {
+        // wire up the data
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+        settings = await dbc.SystemSettings.FirstOrDefaultAsync();
+        sourceTerm = await BusinessRule.CurrentTermAsync(dbc);
+        if (sourceTerm != null) { 
+            terms = await BusinessRule.SelectableTermsInCurrentYearAsync(dbc,sourceTerm);
+            targetTerm = await BusinessRule.GetNextTargetTerm(dbc, sourceTerm);
+        }
+        IsReady = true;
+    }
+
+
+    protected override async Task OnAfterRenderAsync(bool firstRender) {
+        // wire up the toolbar
+        base.OnAfterRender(firstRender);
+        if (!firstRender) {
+            if (sourceTerm == null) {
+                await messageBox.ShowOkOnlyAsync("Current Term is undefined", "Use <strong>Add/Edit Enrolment Terms</strong> to set the current term.");
+                NavigationManager.NavigateTo("/");
+            }
+            else {
+                if (sourceTerm.TermNumber == 4) {
+                    await messageBox.ShowOkOnlyAsync("Enrolments Cannot Be Brought Forward", "Enrolments cannot be brought forward from term 4 into the new year.<br/>Participants must be re-enrolled into a new year.");
+                    NavigationManager.NavigateTo("/");
+                }
+            }
+        }
+    }
+    async Task Process() {
+        if (await IsDataOk()) {
+            errorMessage = null;
+            IsProcessing = true;
+            StateHasChanged();
+            await BusinessRule.BringForwardEnrolmentsAsync(dbc, sourceTerm, targetTerm, SetCurrentTerm);
+            await messageBox.ShowOkOnlyAsync("Process Complete", "The selected enrolment term has been brought forward.");
+            NavigationManager.NavigateTo("/");
+        }
+    }
+
+    async Task<bool> IsDataOk() {
+        bool result = true;
+        string msg = "<p>";
+        if (sourceTerm == null) {
+            msg += "*** You must select the current Term ***<br/>";
+            result = false;
+        }
+        if (targetTerm == null) {
+            msg += "*** You must select the new Term ***<br/>";
+            result = false;
+        }
+        if (result) {
+            if (sourceTerm?.Comparer > targetTerm?.Comparer) {
+                msg += "*** Current Term must be prior to the new Term ***<br/>";
+                result = false;
+            }
+            int count = await BusinessRule.CountOfTermEnrolments(dbc, targetTerm);
+            if (count > 0) {
+                msg += $"*** The new Term must not have any enrolments. The selected Term has {count} enrolments. ***<br/>";
+                result = false;
+            }
+        }
+        if (!result) {
+            msg += "<p>";
+            errorMessage = msg;
+        }
+        return result;
+    }
+
+    void Close() {
+        NavigationManager.NavigateTo("/");
+    }
+
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+
+}

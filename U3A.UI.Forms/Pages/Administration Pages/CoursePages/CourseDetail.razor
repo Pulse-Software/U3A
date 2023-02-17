@@ -1,0 +1,118 @@
+﻿
+<MessageBox @ref="@messageBox" />
+
+<DxFormLayout Data="@Course">
+    <DxFormLayoutItem ColSpanMd="12">
+        <ValidationSummary />
+    </DxFormLayoutItem>
+    <DxTabs>
+        <DxTabPage Text="Course Details">
+            <DxFormLayout CssClass="p-2">
+                <DxFormLayoutItem Caption="Course Number" ColSpanMd="12">
+                    <DxMaskedInput @bind-Value="Course.ConversionID"
+                                   Mask="@NumericMask.WholeNumber" />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Course Type" ColSpanMd="12">
+                    <DxComboBox Data="CourseTypes"
+                                @bind-Value="Course.CourseType"
+                                TextFieldName="@nameof(CourseType.NameWithStatus)">
+                    </DxComboBox>
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Participation Type" ColSpanMd="12">
+                    <DxComboBox Data="CourseParticpationTypes"
+                                Value="Course.CourseParticipationType"
+                                ValueChanged="@((CourseParticipationType type) => OnCourseParticipationTypeChange(type))"
+                                ValueExpression="@(() => Course.CourseParticipationType)"
+                                TextFieldName="@nameof(CourseParticipationType.Name)">
+                    </DxComboBox>
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Course Name" ColSpanMd="12">
+                    <DxTextBox @bind-Text="Course.Name" />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Description" ColSpanMd="12">
+                    <DxMemo @bind-Text="Course.Description" Rows="5" />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Class Duration (Hours)" ColSpanMd="4">
+                    <DxMaskedInput @bind-Value="Course.Duration"
+                                   Mask="n2" />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Required Students" ColSpanMd="4">
+                    <DxMaskedInput @bind-Value="Course.RequiredStudents"
+                                   Mask="@NumericMask.WholeNumber" />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Maximum Students" ColSpanMd="4">
+                    <DxMaskedInput @bind-Value="Course.MaximumStudents"
+                                   Mask="@NumericMask.WholeNumber" />
+                </DxFormLayoutItem>
+                <DxFormLayoutGroup Caption="Fees Per Year" ColSpanMd="6">
+                    <DxFormLayoutItem Caption="Course Fee" ColSpanMd="12">
+                        <DxMaskedInput @bind-Value="Course.CourseFeePerYear" Mask="@NumericMask.Currency" />
+                    </DxFormLayoutItem>
+                    <DxFormLayoutItem Caption="Fee Description" ColSpanMd="12">
+                        <DxTextBox @bind-Text="Course.CourseFeePerYearDescription" />
+                    </DxFormLayoutItem>
+                    <DxFormLayoutItem Caption="Override Complimentary?" ColSpanMd="12">
+                        <DxCheckBox @bind-Checked="Course.OverrideComplimentaryPerYearFee" />
+                    </DxFormLayoutItem>
+                </DxFormLayoutGroup>
+                <DxFormLayoutGroup Caption="Fees Per Term" ColSpanMd="6">
+                    <DxFormLayoutItem Caption="Course Fee / Term" ColSpanMd="12">
+                        <DxMaskedInput @bind-Value="Course.CourseFeePerTerm" Mask="@NumericMask.Currency" />
+                    </DxFormLayoutItem>
+                    <DxFormLayoutItem Caption="Fee Description" ColSpanMd="12">
+                        <DxTextBox @bind-Text="Course.CourseFeePerTermDescription" />
+                    </DxFormLayoutItem>
+                    <DxFormLayoutItem Caption="Override Complimentary?" ColSpanMd="12">
+                        <DxCheckBox @bind-Checked="Course.OverrideComplimentaryPerTermFee" />
+                    </DxFormLayoutItem>
+                </DxFormLayoutGroup>
+            </DxFormLayout>
+            <DxFormLayout CssClass="p-2">
+                <DxFormLayoutItem Caption="Exclude this Course from the Leaders Complimentary count?" ColSpanMd="12">
+                    <DxCheckBox @bind-Checked="Course.ExcludeFromLeaderComplimentaryCount" />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem ColSpanMd="12">
+                    <ClassDetail @ref="classDetail" Course="@Course" AllowEdit="true"
+                                 Venues="@Venues" WeekDays="@WeekDays" Persons="@Persons"
+                                 DbContext="@DbContext" />
+                </DxFormLayoutItem>
+            </DxFormLayout>
+        </DxTabPage>
+    </DxTabs>
+</DxFormLayout>
+
+@code {
+
+    [Parameter]
+    public bool AnyEnrolmentsInYear { get; set; }
+    [Parameter]
+    public Course Course { get; set; }
+    [Parameter]
+    public IEnumerable<CourseParticipationType> CourseParticpationTypes { get; set; }
+    [Parameter]
+    public IEnumerable<Person> Persons { get; set; }
+    [Parameter]
+    public IList<CourseType> CourseTypes { get; set; }
+    [Parameter]
+    public IEnumerable<Venue> Venues { get; set; }
+    [Parameter]
+    public IEnumerable<WeekDay> WeekDays { get; set; }
+    [Parameter]
+    public U3ADbContext? DbContext { get; set; }
+
+    internal ClassDetail? classDetail { get; set; }
+    MessageBox? messageBox;
+
+    async Task OnCourseParticipationTypeChange(CourseParticipationType participationType) {
+        if (AnyEnrolmentsInYear) {
+            await messageBox.ShowOkOnlyAsync("Participation Type cannot be changed",
+                   @"<p>The course participation type cannot be changed because enrolments
+                   have already been assigned to it in the current year.</p>
+                   <p>The safest way to to implement this change is...</p>
+                   <ol><li>Create a completely new course, and then</li>
+                   <li>Transfer enrolments from the old to the new via <em>Enrol Participants</em>.</li></ol>");
+        }
+        else { Course.CourseParticipationType = participationType; }
+    }
+
+}

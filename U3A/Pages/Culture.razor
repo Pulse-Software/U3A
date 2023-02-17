@@ -1,0 +1,156 @@
+﻿@page "/Culture"
+@inject NavigationManager NavigationManager
+@inject IJSRuntime js
+@using System.Globalization
+@using Eway.Rapid
+@using Eway.Rapid.Abstractions.Interfaces
+@using Eway.Rapid.Abstractions.Models
+@using Eway.Rapid.Abstractions.Request
+@using Eway.Rapid.Abstractions.Response
+
+<div class="container h-50">
+    <h1>Culture Example 1</h1>
+
+    <p>
+        <b>CurrentCulture</b>: @CultureInfo.CurrentCulture
+    </p>
+
+    <h2>Rendered values</h2>
+
+    <ul>
+        <li><b>Date</b>: @dt</li>
+        <li><b>Number</b>: @number.ToString("N2")</li>
+    </ul>
+
+    <h2><code>&lt;input&gt;</code> elements that don't set a <code>type</code></h2>
+
+    <p>
+        The following <code>&lt;input&gt;</code> elements use
+        <code>CultureInfo.CurrentCulture</code>.
+    </p>
+
+    <ul>
+        <li><label><b>Date:</b> <input @bind="dt" /></label></li>
+        <li><label><b>Number:</b> <input @bind="number" /></label></li>
+    </ul>
+
+    <h2><code>&lt;input&gt;</code> elements that set a <code>type</code></h2>
+
+    <p>
+        The following <code>&lt;input&gt;</code> elements use
+        <code>CultureInfo.InvariantCulture</code>.
+    </p>
+
+    <ul>
+        <li><label><b>Date:</b> <input type="date" @bind="dt" /></label></li>
+        <li><label><b>Number:</b> <input type="number" @bind="number" /></label></li>
+    </ul>
+
+    <DxButton Click="@PayNow" Text="Pay Now" RenderStyle="@ButtonRenderStyle.Primary" />
+
+    @eway
+
+</div>
+
+@code {
+    private DateTime dt = DateTime.Now;
+    private double number = 1999.69;
+    MarkupString eway = new MarkupString(@"<script class='eway-paynow-button'
+         data-publicapikey='epk-1C136AF4-016C-4DB2-9EEB-1013D3498AAE'
+         data-amount='1000'
+         data-currency='AUD' ></script>");
+
+    async Task DirectPayment() {
+        HttpClient httpClient = new HttpClient();
+        RapidOptions rapidOptions = new RapidOptions {
+                ApiKey = "44DD7C0+s1BVK1G5EEapM/n1EwCdkDo1RtYe7te2DyqeX5vRE7lZ6xyhTGCnlyhdmh87d+",
+                Password = "YAOgtlHD",
+                RapidEndPoint = RapidEndpoints.SANDBOX
+            };
+        rapidOptions.ConfigureHttpClient(httpClient);
+        IRapidClient rapidClient = new RapidClient(httpClient);
+
+        DirectPaymentRequest transaction = new DirectPaymentRequest() {
+                Customer = new DirectTokenCustomer() {
+                    CardDetails = new CardDetails() {
+                        Name = "Mr Michael G Hanlon",
+                        Number = "5353165273183320",
+                        ExpiryMonth = "11",
+                        ExpiryYear = "23",
+                        CVN = "625"
+                    }
+                },
+                Payment = new Payment() {
+                    TotalAmount = 1000
+                },
+                TransactionType = TransactionTypes.Purchase
+            };
+
+        // Use the RapidClient to process the request.
+        var response = await rapidClient.CreateTransaction(transaction);
+    }
+
+
+    async Task PayNow() {
+        HttpClient httpClient = new HttpClient();
+        RapidOptions rapidOptions = new RapidOptions {
+                ApiKey = "44DD7C0+s1BVK1G5EEapM/n1EwCdkDo1RtYe7te2DyqeX5vRE7lZ6xyhTGCnlyhdmh87d+",
+                Password = "YAOgtlHD",
+                RapidEndPoint = RapidEndpoints.SANDBOX
+            };
+        rapidOptions.ConfigureHttpClient(httpClient);
+        IRapidClient rapidClient = new RapidClient(httpClient);
+
+        CreateResponsiveSharedRequest request = new CreateResponsiveSharedRequest();
+        request.AllowedCards = AllowedCards.Visa | AllowedCards.Mastercard | AllowedCards.Amex | AllowedCards.Diners;
+        var payment = new Payment() { TotalAmount = 10000 };
+        request.HeaderText = "U3Admin.org.au";
+        request.Payment = payment;
+
+        var urlBase = NavigationManager.BaseUri;
+        request.RedirectUrl = Path.Combine( urlBase,"MemberPortal/EwaySuccess");
+        request.CancelUrl = "https://demo.u3admin.org.au/culture";
+        request.TransactionType = TransactionTypes.Purchase;
+        request.TrackingID = Guid.NewGuid().ToString();
+        request.CustomView = CustomView.BootstrapReadable;
+
+        var Customer = new DirectTokenCustomer()
+            {
+                Reference = "A12345",
+                Title = "Mr.",
+                FirstName = "John",
+                LastName = "Smith",
+                CompanyName = "Demo Shop 123",
+                JobDescription = "C# Developer",
+                Phone = "09 889 0986",
+                Mobile = "09 889 6542",
+                Url = "http://www.ewaypayments.com",
+                Street1 = "Level 5",
+                Street2 = "369 Queen Street",
+                City = "Sydney",
+                State = "NSW",
+                Country = "au",
+                PostalCode = "2000",
+                Comments = "",
+                Fax = "",
+                Email = "demo@example.org",
+                CardDetails = new CardDetails
+                {
+                    Name = "John Smith",
+                    Number = "4444333322221111",
+                    ExpiryMonth = "12",
+                    ExpiryYear = "25",
+                    CVN = "123"
+                }
+            };
+        request.Customer = Customer;
+        request.CustomerReadOnly = true;
+
+        // Use the RapidClient to process the request.
+        var response = await rapidClient.CreateTransaction(request);
+        NavigationManager.NavigateTo(response.SharedPaymentUrl);
+    }
+
+
+
+}

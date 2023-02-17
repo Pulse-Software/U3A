@@ -1,0 +1,87 @@
+﻿@page "/Public/ClassScheduleView"
+
+@using DevExpress.Blazor.Reporting.Models;
+@using U3A.BusinessRules
+@inject NavigationManager NavManager
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@implements IDisposable
+
+@layout BasicLayout
+
+
+@if (!IsReady) {
+    <p>@message</p>
+}
+else {
+    <PortalHeader NavigateTo="/public" />
+    <DxReportViewer @ref="reportViewer"
+                Report="@rpt" SizeMode="SizeMode.Small"
+                SinglePagePreview="false"
+                RootCssClasses="w-100 vh-100" 
+                TabPanelMinWidth="200"
+                TabPanelMaxWidth="200"
+                OnCustomizeToolbar="@OnCustomizeToolbar"/>
+
+}
+
+@code {
+    bool IsReady;
+    bool IsMobileLayout;
+    ClassScheduleRpt rpt;
+    MarkupString message = new MarkupString("<em>Loading...</em>");
+    DxReportViewer? reportViewer;
+    U3ADbContext? dbc { get; set; }
+
+    protected override async Task OnInitializedAsync() {
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+        var today = DateTime.Today;
+        Term? term = BusinessRule.CurrentEnrolmentTerm(dbc);
+        if (term == null) {
+            message = new MarkupString($"<em>We are currently working on the Class Schedule for the new term. It will be made availabe in the near future.</em>");
+        }
+        else {
+            rpt = new ClassScheduleRpt();
+            foreach (var prm in rpt.Parameters) {
+                prm.Visible = false;
+            }
+            rpt.DbContext = dbc;
+            rpt.prmTerm.Value = term.ID;
+            rpt.prmIntendedUse.Value = 0; // Public
+            rpt.CreateReport();
+        }
+        IsReady = true;
+        await base.OnInitializedAsync();
+    }
+
+
+    void OnCustomizeToolbar(ToolbarModel toolbarModel) {
+        string[] itemsToRemove = new string[] {"FirstPage",
+                                                "PreviousPage",
+                                                "PageOfPages",
+                                                "NextPage",
+                                                "LastPage",
+                                                "HighlightEditingFields",
+                                                "ExportTo",
+                                                "CancelDocumentCreation"
+                                            };
+        foreach (var item in toolbarModel.AllItems) {
+            if (itemsToRemove.Contains( item.Id)) {
+                item.GetEnabled = () => { return false; };
+                item.Visible = false;
+            }
+        }
+    }
+
+    protected override void OnAfterRender(bool firstRender) {
+        if (firstRender) {
+            reportViewer.TabPanelModel[TabContentKind.Parameters].Visible = false;
+            reportViewer.TabPanelModel[TabContentKind.Search].Visible = true;
+            reportViewer.TabPanelModel[TabContentKind.ExportOptions].Visible = false;
+            reportViewer.TabPanelModel[TabContentKind.DocumentMap].Visible = false;
+        }
+        base.OnAfterRender(firstRender);
+    }
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+}

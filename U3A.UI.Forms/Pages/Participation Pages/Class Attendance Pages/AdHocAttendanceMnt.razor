@@ -1,0 +1,84 @@
+﻿@namespace U3A.UI.Forms
+
+@using System.ComponentModel.DataAnnotations
+
+<DxPopup Visible="@popupVisible" @ref="@popup"
+         CloseButtonClick="@NegativeButtonClicked"
+         CloseOnEscape="false"
+         CloseOnOutsideClick="false"
+         ShowFooter="true"
+         HeaderText="Add Ad Hoc Attendee">
+    <BodyTemplate Context="PopupContext">
+        <DxFormLayout CssClass="m-2">
+            <DxFormLayoutItem Caption="Ad Hoc Attendee(s)" ColSpanMd="12">
+                <DxTagBox Data="@AvailablePersons"
+                          ListRenderMode="ListRenderMode.Virtual"
+                          TextFieldName="@nameof(Person.FullName)"
+                          NullText=" "
+                          @bind-Values="@SelectedPersons">
+                    <DxListEditorColumn FieldName="@nameof(Person.FullName)"
+                                        Caption="Name" />
+                        <DxListEditorColumn FieldName="@nameof(Person.Mobile)"
+                                            Caption="Mobile" Visible=@IsLargerLayout
+                                            Width="25%" />
+                        <DxListEditorColumn FieldName="@nameof(Person.Email)"
+                                            Caption="Email" Visible=@IsLargerLayout
+                                            Width="25%" />
+                </DxTagBox>
+            </DxFormLayoutItem>
+            <DxFormLayoutItem Caption="Comment" ColSpanSm="12">
+                <DxTextBox @bind-Text="AttendanceComment" />
+            </DxFormLayoutItem>
+        </DxFormLayout>
+    </BodyTemplate>
+    <FooterContentTemplate>
+        <DxButton CssClass="popup-button"
+                  RenderStyle="ButtonRenderStyle.Primary"
+                  Text="Create Ad Hoc Attendance"
+                  Click="@AffirmativeButtonClicked" />
+        <DxButton CssClass="popup-button"
+                  RenderStyle="ButtonRenderStyle.Secondary"
+                  Text="Cancel" Click="@NegativeButtonClicked" />
+    </FooterContentTemplate>
+</DxPopup>
+
+                    @code {
+
+        [Parameter]
+        public List<Person> AvailablePersons { get; set; }
+        [Parameter]
+        public IEnumerable<Person>? SelectedPersons { get; set; }
+        [Parameter]
+        public bool IsLargerLayout { get; set; }
+
+        [Parameter]
+        public string AttendanceComment { get; set; } = string.Empty;
+
+
+
+        bool popupVisible { get; set; }
+        DxPopup? popup;
+
+        TaskCompletionSource<bool>? tcs;
+
+        public Task<bool> ShowAsync() {
+            SelectedPersons = new List<Person>();
+            popupVisible = true;
+            tcs = new TaskCompletionSource<bool>();
+            tcs.Task.ContinueWith(_ => {
+                popupVisible = false;
+            });
+            StateHasChanged();
+            return tcs.Task;
+        }
+
+        void AffirmativeButtonClicked() {
+            popupVisible = false;
+            tcs?.SetResult(true);
+        }
+        void NegativeButtonClicked() {
+            popupVisible = false;
+            tcs?.SetResult(false);
+        }
+
+}

@@ -1,0 +1,73 @@
+﻿@namespace U3A.UI.Forms
+
+<DxPopup Visible="@PopupVisible" @ref="@messageBox" Width="@PopupWidth"
+         ApplyBackgroundShading="true"
+         CloseButtonClick="@NegativeButtonClicked"
+         CloseOnEscape="false"
+         CloseOnOutsideClick="false"
+         ShowFooter="true"
+         HeaderText="Select Student Group">
+    <BodyContentTemplate Context="PopupContext">
+        <InputRadioGroup @bind-Value=@EnrolmentType>
+            <div class="col-10 my-1"><InputRadio Value="1" class="col-2" />Enrolled only</div>
+            <div class="col-10 my-1" ><InputRadio Value="2" class="col-2" />Waitlisted only</div>
+            <div class="col-10 my-1"><InputRadio Value="0" class="col-2" />All students</div>
+        </InputRadioGroup>
+    </BodyContentTemplate>
+    <FooterContentTemplate>
+        <DxButton CssClass="popup-button"
+                  RenderStyle="ButtonRenderStyle.Primary"
+                  Text="Ok"
+                  Click="@AffirmativeButtonClicked" />
+        <DxButton CssClass="popup-button"
+                  RenderStyle="ButtonRenderStyle.Secondary"
+                  Text="Cancel"
+                  Click="@NegativeButtonClicked" />
+    </FooterContentTemplate>
+</DxPopup>
+
+@code {
+    [Parameter]
+    public int EnrolmentType { get; set; }
+    [Parameter]
+    public bool PopupVisible { get; set; }
+    [Parameter]
+    public string PopupWidth { get; set; }
+
+    DxPopup? messageBox;
+
+    string mOKButtonText { get; set; }
+
+    TaskCompletionSource<bool>? tcs;
+
+    public async Task SetPopupWidth(string Width) {
+        PopupWidth = Width;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    public Task<bool> ShowAsync() {
+        PopupVisible = true;
+        tcs = new TaskCompletionSource<bool>();
+        tcs.Task.ContinueWith(_ => {
+            PopupVisible = false;
+        });
+        StateHasChanged();
+        return tcs.Task;
+    }
+
+    void AffirmativeButtonClicked() {
+        PopupVisible = false;
+        tcs?.TrySetResult(true);
+    }
+    void NegativeButtonClicked() {
+        PopupVisible = false;
+        tcs?.TrySetResult(false);
+    }
+
+    public async Task Close() {
+        await Task.Run(() => {
+            PopupVisible = false;
+        });
+        StateHasChanged();
+    }
+}

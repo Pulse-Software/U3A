@@ -1,0 +1,129 @@
+﻿@using Microsoft.AspNetCore.Hosting
+@using Microsoft.AspNetCore.Mvc.ViewEngines
+@using Microsoft.EntityFrameworkCore
+@using U3A.Database
+@using U3A.Model
+@inject IWebHostEnvironment Environment
+@inject ICompositeViewEngine Engine
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] - U3A</title>
+    <meta charset="utf-8" />
+    <base href="~/" />
+    <link href="css/site.css" rel="stylesheet" />
+    <link href="_content/DevExpress.Blazor.Themes/office-white.bs5.min.css" rel="stylesheet" />
+
+    <link rel="apple-touch-icon" sizes="180x180" href="/favicon/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon/favicon-16x16.png">
+    <link rel="manifest" href="/favicon/site.webmanifest">
+
+</head>
+<body>
+
+    <script>
+
+        window.onload = function () {
+            var href = '_content/DevExpress.Blazor.Themes/office-white.bs5.min.css';
+            var theme = localStorage.getItem('theme');
+            if (theme != 'undefined') {
+                theme = theme.replace('"', '',);
+                theme = theme.replace('"', '',);
+                href = href.replace('office-white', theme);
+            }
+            var link = document.createElement('link');
+            link.rel = "stylesheet";
+            link.type = "text/css";
+            link.href = href;
+            document.head.appendChild(link);
+        }
+    </script>
+
+
+
+    <header class="opacity-100 navbar-bg-color">
+        <nav class="navbar navbar-expand-sm navbar-toggleable-sm box-shadow mb-3 p-0">
+            <div class="container">
+                <div class="col-12" align="center">
+                    <a class="btn btn-link navbar-brand"
+                       href="~/"><img src="images/u3alogo.png" width="81" />&nbsp; &nbsp; Member Portal</a>
+                </div>
+            </div>
+        </nav>
+    </header>
+
+    <div class="container">
+        <partial name="_CookieConsentPartial" optional />
+        <main role="main" align="center">
+            <div align="center">
+                <div class="col col-sm-8 col-md-6 col-lg-5 col-xl-4">
+                    @{
+                        using (var dbc = U3Adbfactory.CreateDbContext()) {
+                            SystemSettings? settings = dbc.SystemSettings.FirstOrDefault();
+                            if (settings != null) {
+                                <div class="h5">@settings.U3AGroup</div>
+                                <p class="h6 text-center">
+                                    @($"Phone: {settings.Phone}")
+                                </p>
+
+                                <br />
+
+                                <br />
+                            }
+                        };
+                    }
+                    <div class="card p-1 p-lg-2">
+                        @RenderBody()
+                    </div>
+                </div>
+        </main>
+    </div>
+    <footer class="footer pl-3 text-muted">
+        <div class="container" align="center">
+            &copy; @(DateTime.Today.Year) - U3Admin.org.au
+            @{
+                var foundPrivacy = Url.Page("/Privacy", new { area = "" });
+            }
+            @if (foundPrivacy != null) {
+                <a asp-area="" asp-page="/Privacy">Privacy</a>
+            }
+        </div>
+    </footer>
+
+    <environment include="Development">
+        <script src="~/Identity/lib/jquery/dist/jquery.js"></script>
+        <script src="~/Identity/lib/bootstrap/dist/js/bootstrap.bundle.js"></script>
+        <script src="~/Identity/js/site.js" asp-append-version="true"></script>
+    </environment>
+    <environment exclude="Development">
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js"
+                asp-fallback-src="~/Identity/lib/jquery/dist/jquery.min.js"
+                asp-fallback-test="window.jQuery"
+                crossorigin="anonymous"
+                integrity="sha384-ZvpUoO/+PpLXR1lu4jmpXWu80pZlYUAfxl5NsBMWOEPSjUn/6Z/hRTt8+pR6L4N2">
+        </script>
+        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.0/dist/js/bootstrap.bundle.min.js"
+                asp-fallback-src="~/Identity/lib/bootstrap/dist/js/bootstrap.bundle.min.js"
+                asp-fallback-test="window.jQuery && window.jQuery.fn && window.jQuery.fn.modal"
+                crossorigin="anonymous"
+                integrity="sha384-U1DAWAznBHeqEIlVSCgzq+c9gqGAJn5c/t99JyeKa9xxaYpSvHU5awsuZVVFIhvj">
+        </script>
+        <script src="~/Identity/js/site.js" asp-append-version="true"></script>
+    </environment>
+
+    @await RenderSectionAsync("Scripts", required: false)
+
+</body>
+</html>
+<style>
+    .navbar-bg-color {
+        background-color: var(--bs-body-bg);
+    }
+</style>
+
+

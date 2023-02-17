@@ -1,0 +1,768 @@
+﻿@page "/AttendClassMnt"
+
+@namespace U3A.UI.Forms
+
+@inject NavigationManager NavMan
+@inject IJSRuntime js
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@implements IDisposable
+
+
+@attribute [Authorize]
+
+@if (!IsReady) {
+    <p><em>Loading...</em></p>
+}
+else {
+
+    <DxLayoutBreakpoint DeviceSize="DeviceSize.Large"
+                    @bind-IsActive="@IsLargeLayout" />
+    <DxLayoutBreakpoint DeviceSize="DeviceSize.XLarge"
+                    @bind-IsActive="@IsXtraLargeLayout" />
+
+    @if (!IsMemberPortal) {
+        <div class="row align-content-start">
+            <h3>Class Attendance</h3>
+        </div>
+        <div class="input-group">
+            <div class="flex-grow-9">
+                Mark the class attendance roll.
+            </div>
+            <DxButton Text="Communicate"
+              Click="@OnCommunicate"
+              RenderStyle="ButtonRenderStyle.Primary" CssClass="flex-grow-1" />
+        </div>
+    }
+
+    <SelectDocumentTemplatePopup @ref="@selectDocumentTemplatePopup" dbContext="@dbc"
+                             DocumentTemplates="@DocumentTemplates" SendTo="@SendTo" />
+    <Progress @ref="@ProgressBar" />
+
+    <MessageBox @ref="@messageBox" />
+
+    <ErrorPopup @ref="@ErrorPopup" PopupHeader="@ErrorHeader" PopupMessage="@ErrorMessage" />
+
+    <AdHocAttendanceMnt @ref="adHocAttendanceMnt" AvailablePersons=Persons IsLargerLayout=@(IsLargerLayout()) />
+
+    <DxFlyout @bind-IsOpen=IsFlyoutOpen
+          PositionTarget="@FlyoutTargetID"
+          Position="FlyoutPosition.Bottom"
+          FitToRestriction=false
+          CloseMode="FlyoutCloseMode.Close"
+          HeaderVisible="true"
+          HeaderText="@HeaderContent"
+          Width="max(25vw, 250px)"
+          PreventCloseOnPositionTargetClick="false">
+        <BodyTemplate>
+            <div class="card">
+                <div class="card-body">
+                    @(new MarkupString(MessageContent))
+                </div>
+            </div>
+        </BodyTemplate>
+    </DxFlyout>
+
+    <DxFormLayout>
+        <div class="col col-12 col-lg-9 p-2">
+            @if (!IsLargerLayout()) {
+                <div class="text-center col-12">
+                    @(new MarkupString($"{SelectedTerm?.Name} {SelectedCourse?.Name}<br/>{SelectedClass?.ClassSummary}"))
+                </div>
+                <div class="input-group my-2">
+                    <div class="flex-grow-1">Class Date</div>
+                    <DxComboBox @ref="@DateComboBox" Data="@ClassDates" CssClass="flex-grow-4"
+                        Enabled="@dateComboEnabled"
+                        NullText="@dateComboNullText"
+                        TextFieldName="@nameof(ClassDate.DateName)"
+                        Value="@selectedDate"
+                        ValueChanged="@((ClassDate selectedDate) => SelectedDateChanged(selectedDate))" />
+                </div>
+            }
+            else {
+                <DxFormLayoutGroup Caption="Attendance Details">
+                    <DxFormLayoutItem Caption="Attendance Term" ColSpanMd="12">
+                        <DxComboBox Data="@terms" NullText="Select the Term required..."
+                            FilteringMode="DataGridFilteringMode.Contains"
+                            TextFieldName="@nameof(Term.TermSummary)"
+                            Value="@SelectedTerm"
+                            ValueChanged="@((Term term) => SelectedTermChanged(term))" />
+                    </DxFormLayoutItem>
+                    <DxFormLayoutItem Caption="Course Attended" ColSpanMd="12">
+                        <DxComboBox Data="@courses"
+                            Enabled="@courseComboEnabled"
+                            NullText="@courseComboNullText"
+                            FilteringMode="DataGridFilteringMode.Contains"
+                            ListRenderMode="ListRenderMode.Virtual"
+                            TextFieldName="@nameof(Course.Name)"
+                            Value="@SelectedCourse"
+                            ValueChanged="@((Course course) => SelectedCourseChanged(course))">
+                        </DxComboBox>
+                    </DxFormLayoutItem>
+                    <DxFormLayoutItem Caption="Class Attended" ColSpanMd="8">
+                        <DxComboBox @ref="@ClassComboBox" Data="@classes" Enabled="@classComboEnabled" NullText="@classComboNullText"
+                            TextFieldName="@nameof(Class.ClassSummary)"
+                            Value="@SelectedClass"
+                            ValueChanged="@((Class selectedClass) => SelectedClassChanged(selectedClass))" />
+                    </DxFormLayoutItem>
+                    <DxFormLayoutItem Caption="Class Date" ColSpanMd="4">
+                        <DxComboBox @ref="@DateComboBox" Data="@ClassDates"
+                            Enabled="@dateComboEnabled"
+                            NullText="@dateComboNullText"
+                            TextFieldName="@nameof(ClassDate.DateName)"
+                            Value="@selectedDate"
+                            ValueChanged="@((ClassDate selectedDate) => SelectedDateChanged(selectedDate))" />
+                    </DxFormLayoutItem>
+                </DxFormLayoutGroup>
+            }
+
+            @quickMessage
+
+            @if (!IsMemberPortal) {
+                <GridToolbar LinkedGrid=@mainGrid />
+            }
+
+            <DxGrid Data="@ClassAttendance" @ref=@mainGrid
+                CssClass="grid-height"
+                ShowAllRows="true"
+                ColumnResizeMode="GridColumnResizeMode.ColumnsContainer"
+                KeyFieldName="ID"
+                ValidationEnabled="true"
+                SelectionMode="GridSelectionMode.Multiple"
+                AllowSelectRowByClick="true"
+                @bind-SelectedDataItems="SelectedDataItems"
+                EditMode="GridEditMode.PopupEditForm"
+                DataItemDeleting="Grid_DataItemDeleting"
+                EditModelSaving="Grid_EditModelSaving">
+                <Columns>
+                    <DxGridSelectionColumn Width="1rem" />
+                    <DxGridCommandColumnEx @ref="GridCommandColumn"
+                                       EditButtonVisible="true" NewButtonVisible="false" DeleteButtonVisible="false" />
+                    <DxGridDataColumn Caption="Name"
+                                  FieldName="Person.FullName"
+                                  Width="12rem">
+                        <CellDisplayTemplate>
+                            @{
+                                var status = (AttendClassStatusType)((AttendClass)context.DataItem).AttendClassStatusID;
+                                string css;
+                                switch (status) {
+                                    case AttendClassStatusType.Present:
+                                        css = "alert-success";
+                                        break;
+                                    case AttendClassStatusType.AbsentFromClassWithApology:
+                                        css = "alert-warning";
+                                        break;
+                                    default:
+                                        css = "alert-danger";
+                                        break;
+                                }
+                                <div class=@css>@context.Value</div>
+                            }
+                        </CellDisplayTemplate>
+                    </DxGridDataColumn>
+
+                    <DxGridDataColumn Caption="AdHoc?" FieldName="IsAdHoc" Width="5rem">
+                        <CellDisplayTemplate>
+                            <DxCheckBox Enabled="false" Checked="(bool)context.Value" Alignment="CheckBoxContentAlignment.Center" />
+                        </CellDisplayTemplate>
+                        <FilterRowCellTemplate>
+                            <DxCheckBox Checked="(bool?)context.FilterRowValue"
+                                    CheckedChanged="(bool? v) => context.FilterRowValue = v"
+                                    AllowIndeterminateStateByClick="true"
+                                    Alignment="CheckBoxContentAlignment.Center" />
+                        </FilterRowCellTemplate>
+                    </DxGridDataColumn>
+                    <DxGridDataColumn Caption="Vax Cert?" FieldName="Person.VaxCertificateViewed"
+                                  Width="5rem" Visible="@settings.RequireVaxCertificate">
+                        <CellDisplayTemplate>
+                            <DxCheckBox Enabled="false" Checked="(bool)context.Value" Alignment="CheckBoxContentAlignment.Center" />
+                        </CellDisplayTemplate>
+                        <FilterRowCellTemplate>
+                            <DxCheckBox Checked="(bool?)context.FilterRowValue"
+                                    CheckedChanged="(bool? v) => context.FilterRowValue = v"
+                                    AllowIndeterminateStateByClick="true"
+                                    Alignment="CheckBoxContentAlignment.Center" />
+                        </FilterRowCellTemplate>
+                    </DxGridDataColumn>
+                    <DxGridDataColumn Caption="Attendance"
+                                  FieldName="AttendClassStatus.Status"
+                                  Width="10rem"
+                                  Visible=@(IsLargerLayout()) />
+                    <DxGridDataColumn Caption="Comment" FieldName="Comment" />
+                </Columns>
+
+                <EditFormTemplate Context="EditFormContext">
+                    @{
+                        var editItem = (AttendClass)EditFormContext.EditModel;
+                    }
+                    <DxFormLayout>
+                        <DxFormLayoutItem ColSpanMd="12">
+                            <ValidationSummary />
+                        </DxFormLayoutItem>
+                        <DxFormLayoutItem Caption="Class Attendance" ColSpanMd="12">
+                            <DxComboBox Data="ClassAttendanceStatus"
+                                    @bind-Value="@editItem.AttendClassStatus"
+                                    TextFieldName="@nameof(AttendClassStatus.Status)">
+                            </DxComboBox>
+                        </DxFormLayoutItem>
+                        <DxFormLayoutItem Caption="Comment" ColSpanMd="12">
+                            <DxTextBox @bind-Text="@editItem.Comment" />
+                        </DxFormLayoutItem>
+                    </DxFormLayout>
+                </EditFormTemplate>
+            </DxGrid>
+        </div>
+        <div class="col col-3 d-none d-lg-inline">
+            <DxFormLayoutGroup Caption="Class Summary" CssClass="p-2">
+                <div class="table p-2">
+                    <div class="row">
+                        <div class="col-9">Min-Required</div>
+                        <div class="col-3 text-end">@MinimumParticipants</div>
+                        <div class="col-9">Max-Available</div>
+                        <div class="col-3 text-end">@MaximumParticipants</div>
+                        <div class="col-9">Enrolled</div>
+                        <div class="col-3 text-end">@EnrolledParticipants</div>
+                        <div class="col-9">Waitlisted</div>
+                        <div class="col-3 text-end">@WaitlistedParticipants</div>
+                        <hr />
+                        <div class="col-9">Enrolled Attendees</div>
+                        <div class="col-3 text-end">@countEnrolledAttendees</div>
+                        <div class="col-9">Ad Hoc Attendees</div>
+                        <div class="col-3 text-end">@countAdHoc</div>
+                        <div class="col-9">Absent With Apology</div>
+                        <div class="col-3 text-end">@countAbsentWithApology</div>
+                        <div class="col-9">Absent Without Apology</div>
+                        <div class="col-3 text-end">@countAbsentWithoutApology</div>
+                    </div>
+                </div>
+                @if (!IsMemberPortal) {
+                    <DxButton Text="@ClassStatus" RenderStyle="@buttonRenderStyle" CssClass="col col-12" />
+                }
+            </DxFormLayoutGroup>
+            <DxFormLayoutGroup Caption="Quick Rollcall" ColSpanSm="12">
+                <DxFormLayoutItem Caption="Attendance?" ColSpanSm="12">
+                    <DxComboBox Data="ClassAttendanceStatus"
+                            @bind-Value="QuickSelectionStatus"
+                            TextFieldName="@nameof(AttendClassStatus.Status)">
+                    </DxComboBox>
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Comment" ColSpanSm="12">
+                    <DxTextBox @bind-Text="QuickAttendanceComment" />
+                </DxFormLayoutItem>
+                <DxButton Text="Set Selection" CssClass="col-12 mt-1"
+                      Id="SetSelectionStatus"
+                      RenderStyleMode="ButtonRenderStyleMode.Outline"
+                      RenderStyle="ButtonRenderStyle.Primary" Click="@SetSelectionStatusAsync" />
+            </DxFormLayoutGroup>
+            <DxFormLayoutGroup Caption="Ad Hoc Attendees">
+                <DxButton Text="Add Ad Hoc Attendee(s)" CssClass="col-12 mt-1"
+                      Id="AddAdHocAttendee"
+                      RenderStyleMode="ButtonRenderStyleMode.Outline"
+                      RenderStyle="ButtonRenderStyle.Primary" Click="@AddAdHocAttendee" />
+                <DxButton Text="Delete Ad Hoc Attendee(s)" CssClass="col-12 mt-1"
+                      Id="DeleteAdHocAttendee"
+                      RenderStyleMode="ButtonRenderStyleMode.Outline"
+                      RenderStyle="ButtonRenderStyle.Primary" Click="@DeleteAdHocAttendee" />
+            </DxFormLayoutGroup>
+        </div>
+        @if (!IsLargerLayout()) {
+            <div class="card border-primary col-12 p-1 mb-1">
+                <div class="input-group mb-1">
+                    <InputRadioGroup @bind-Value=@selectedStatusType>
+                        <ChildContent>
+                            <div class="flex-grow-1 alert-success btn">
+                                <InputRadio Value=AttendClassStatusType.Present />
+                                Present
+                            </div>
+                            <div class="flex-grow-1 alert-warning btn">
+                                <InputRadio Value=AttendClassStatusType.AbsentFromClassWithApology />
+                                Apology
+                            </div>
+                            <div class="flex-grow-1 alert-danger btn">
+                                <InputRadio Value=AttendClassStatusType.AbsentFromClassWithoutApology />
+                                No Apology
+                            </div>
+                        </ChildContent>
+                    </InputRadioGroup>
+                </div>
+                <div class="input-group mb-1">
+                    <div class="flex-grow-1">Comment</div>
+                    <div class="flex-grow-4">
+                        <DxTextBox @bind-Text="QuickAttendanceComment" 
+                        ClearButtonDisplayMode="DataEditorClearButtonDisplayMode.Auto" />
+                    </div>
+                </div>
+                <div class="input-group">
+                    <DxButton Text="Set Selected" CssClass="flex-grow-1"
+                      Id="SetSelected"
+                      IconCssClass="bi bi-mortarboard menu-icon"
+                      RenderStyleMode="ButtonRenderStyleMode.Outline"
+                      RenderStyle="ButtonRenderStyle.Primary" Click="SetSmallScreenSelectionStatusAsync" />
+                </div>
+            </div>
+            <div class="input-group">
+                <DxButton Text="+ Ad Hoc" CssClass="flex-grow-1"
+                  Id="AddAdHoc"
+                  IconCssClass="bi bi-person-add menu-icon"
+                  RenderStyleMode="ButtonRenderStyleMode.Outline"
+                  RenderStyle="ButtonRenderStyle.Primary" Click="@AddAdHocAttendee" />
+                <DxButton Text="- Ad Hoc" CssClass="flex-grow-1"
+                  Id="DeleteAdHoc"
+                  IconCssClass="bi bi-person-dash menu-icon"
+                  RenderStyleMode="ButtonRenderStyleMode.Outline"
+                  RenderStyle="ButtonRenderStyle.Primary" Click="@DeleteAdHocAttendee" />
+            </div>
+        }
+    </DxFormLayout>
+
+}
+<style>
+    .grid-height {
+        height: @((IsLargerLayout()) ? "65vh" : "40vh");
+    }
+
+</style>
+
+
+@code {
+
+    [Parameter]
+    public bool IsMemberPortal { get; set; } = false;
+    [Parameter]
+    public Term? SelectedTerm { get; set; }
+    [Parameter]
+    public Course? SelectedCourse { get; set; }
+    [Parameter]
+    public Class? SelectedClass { get; set; }
+
+    bool IsLargeLayout { get; set; }
+    bool IsXtraLargeLayout { get; set; }
+
+    bool IsReady;
+    int attendanceStatus;
+    SystemSettings? settings;
+    private List<AttendClass> ClassAttendance { get; set; }
+    private List<AttendClassStatus> ClassAttendanceStatus { get; set; }
+    private List<ClassDate> ClassDates;
+    private AttendClassStatus? QuickSelectionStatus { get; set; }
+    private List<Enrolment> Enrolments { get; set; }
+
+    private string? QuickAttendanceComment { get; set; }
+    AttendClassStatusType selectedStatusType;
+
+    private List<Person> Persons { get; set; }
+    private List<Term> terms { get; set; }
+    private List<Course> courses { get; set; }
+    private List<Class> classes { get; set; }
+
+    private ClassDate? selectedDate { get; set; }
+
+    IReadOnlyList<object> SelectedDataItems { get; set; }
+
+    bool IsFlyoutOpen = false;
+    string FlyoutTargetID;
+    string HeaderContent;
+    string MessageContent;
+    MessageBox? messageBox { get; set; }
+    bool MessageBoxShowCancelButton;
+    MarkupString quickMessage;
+
+    private string classComboNullText;
+    private string courseComboNullText = "Select the Course to mark attendance...";
+    private bool classComboEnabled;
+    private bool courseComboEnabled;
+    private string dateComboNullText;
+    private bool dateComboEnabled;
+
+
+    private DxGridCommandColumnEx? GridCommandColumn;
+    private DxComboBox<Class, Class?> ClassComboBox;
+    private DxComboBox<ClassDate, ClassDate?> DateComboBox;
+    private AdHocAttendanceMnt? adHocAttendanceMnt;
+
+    int MinimumParticipants;
+    int MaximumParticipants;
+    int EnrolledParticipants;
+    int WaitlistedParticipants;
+    int countEnrolledAttendees = 0;
+    int countAbsentWithApology = 0;
+    int countAbsentWithoutApology = 0;
+    int countAdHoc = 0;
+    string ClassStatus = "Status: N/A";
+    ButtonRenderStyle buttonRenderStyle = ButtonRenderStyle.Light;
+
+    IGrid? mainGrid { get; set; }
+    string gridHeight { get; set; }
+    ErrorPopup? ErrorPopup { get; set; }
+    GridToolbar Toolbar;
+    string ErrorHeader;
+    string ErrorMessage;
+    U3ADbContext dbc { get; set; }
+
+    Communication Communication;
+    private List<Person> SendTo { get; set; }
+    private List<DocumentTemplate> DocumentTemplates;
+    private SelectDocumentTemplatePopup selectDocumentTemplatePopup;
+    DocumentServer server;
+    int documentsSent;
+    internal Progress? ProgressBar;
+
+    bool IsLargerLayout() => (IsLargeLayout || IsXtraLargeLayout);
+
+    protected override async Task OnInitializedAsync() {
+        // wire up the data
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+
+        Communication = new Communication();
+        DocumentTemplates = await BusinessRule.SelectableDocumentTemplatesAsync(dbc);
+        server = new DocumentServer(dbc);
+        server.DocumentSentEvent += Server_DocumentSent;
+
+        settings = await dbc.SystemSettings.FirstOrDefaultAsync();
+        terms = await BusinessRule.SelectableRelaxedTermsAsync(dbc);
+        SelectedTerm = await BusinessRule.CurrentTermAsync(dbc);
+        ClassAttendanceStatus = await dbc.AttendClassStatus.ToListAsync();
+        courseComboEnabled = false;
+        classComboEnabled = false;
+        dateComboEnabled = false;
+        QuickSelectionStatus = ClassAttendanceStatus.First();
+        if (SelectedTerm != null) {
+            Persons = await BusinessRule.SelectablePersonsAsync(dbc, SelectedTerm);
+            await SelectedTermChanged(SelectedTerm);
+        }
+        IsReady = true;
+    }
+
+    protected override async void OnAfterRender(bool firstRender) {
+        // wire up the toolbar
+        base.OnAfterRender(firstRender);
+        if (!firstRender) {
+            if (SelectedTerm == null) {
+                await messageBox.ShowOkOnlyAsync("Current Term is undefined", "Use <strong>Add/Edit Enrolment Terms</strong> to set the current term.");
+                NavMan.NavigateTo("/");
+            }
+        }
+    }
+
+    async Task SelectedTermChanged(Term term) {
+        ClearSelection();
+        if (IsMemberPortal) {
+            SelectedCourseChanged(SelectedCourse);
+        }
+        else {
+            SelectedTerm = term;
+            SelectedCourse = null;
+            SelectedClass = null;
+            classComboEnabled = false;
+            courseComboEnabled = false;
+            dateComboEnabled = false;
+            if (ClassAttendance != null) { ClassAttendance.Clear(); }
+            courseComboNullText = "Loading Course & AttendClass data ... please wait";
+            StateHasChanged();
+            courses = await BusinessRule.SelectableCoursesByTermAsync(dbc, term.Year, term.TermNumber);
+            courseComboNullText = string.Empty;
+            courseComboEnabled = true;
+            StateHasChanged();
+        }
+    }
+
+    async Task SelectedCourseChanged(Course course) {
+        if (ClassAttendance != null) { ClassAttendance.Clear(); }
+        ClearSelection();
+        if (IsMemberPortal) {
+            SelectedClassChanged(SelectedClass);
+        }
+        else {
+            SelectedCourse = course;
+            classes = SelectedCourse.Classes;
+            await SetupClassToEnrol();
+        }
+    }
+
+    async Task SetupClassToEnrol() {
+        SelectedClass = null;
+        selectedDate = null;
+        if (ClassAttendance != null) { ClassAttendance.Clear(); }
+        if (SelectedCourse?.Classes.Count >= 1) {
+            classComboNullText = classes[0].ClassSummary;
+            SelectedClass = classes[0];
+            await SelectedClassChanged(SelectedClass);
+            classComboEnabled = true;
+        }
+    }
+
+    async Task SelectedClassChanged(Class Class) {
+        ClearSelection();
+        SelectedClass = Class;
+        var localTime = new U3A.Services.LocalTime(js);
+        var now = await localTime.GetLocalTimeAsync();
+        ClassDates = await BusinessRule.SelectableAttendanceDatesAsync(dbc, SelectedTerm, SelectedClass, now);
+        dateComboEnabled = true;
+        StateHasChanged();
+    }
+
+    async Task SelectedDateChanged(ClassDate ClassDate) {
+        selectedDate = ClassDate;
+        await GetClassAttendance();
+        SetupGrid();
+    }
+
+    void SetupGrid() {
+        mainGrid.BeginUpdate();
+        ClearSelection();
+        GridCommandColumn.Visible = true;
+        UpdateStatistics();
+        mainGrid.EndUpdate();
+    }
+
+    void ClearSelection() {
+        SendTo = null;
+        SelectedDataItems = null;
+    }
+
+    async Task GetClassAttendance() {
+        ClassAttendance = await BusinessRule.EditableAttendanceAsync(dbc, SelectedTerm, SelectedCourse, SelectedClass, selectedDate);
+        Enrolments = await BusinessRule.EditableEnrolmentsAsync(dbc, SelectedTerm, SelectedCourse, SelectedClass);
+    }
+
+    async Task Grid_EditModelSaving(GridEditModelSavingEventArgs e) {
+        quickMessage = (MarkupString)string.Empty;
+        var editModel = (AttendClass)e.EditModel;
+        if (!await IsDataOk(editModel)) {
+            await mainGrid.CancelEditAsync();
+            e.Cancel = true; return;
+        }
+        // Re-query a data item from the store.
+        var dataItem = e.IsNew ? new AttendClass() : dbc.AttendClass.Find(editModel.ID);
+        // Assign changes from the edit model to the data item.
+        if (dataItem != null) {
+            editModel.CopyTo(dataItem);
+            dataItem.Person = dbc.Person.Find(editModel.Person.ID);
+            dataItem.Term = dbc.Term.Find(SelectedTerm.ID);
+            dataItem.AttendClassStatus = dbc.AttendClassStatus.Find(editModel.AttendClassStatus.ID);
+            if (SelectedClass != null) { dataItem.Class = dbc.Class.Find(SelectedClass.ID); }
+            dataItem.DateProcessed = DateTime.Now;
+            // Post changes to the database.
+            if (e.IsNew) await dbc.AddAsync(dataItem);
+            if (await SaveChangesAsync()) {
+                // update the Grid.
+                if (e.IsNew) {
+                    ClassAttendance.Insert(0, dataItem);
+                }
+                else {
+                    int idx = ClassAttendance.FindIndex(x => x.ID == dataItem.ID);
+                    ClassAttendance[idx] = dataItem;
+                }
+                SetupGrid();
+            }
+            else { e.Cancel = true; }
+        }
+    }
+    async Task<bool> IsDataOk(AttendClass editItem) {
+        bool result = true;
+        return result;
+    }
+
+    async Task Grid_DataItemDeleting(GridDataItemDeletingEventArgs e) {
+        dbc.Remove<AttendClass>((AttendClass)e.DataItem);
+        await SaveChangesAsync();
+        mainGrid.ClearSelection();
+        SetupGrid();
+    }
+
+    async Task<bool> SaveChangesAsync() {
+        bool result = false;
+        try {
+            // Maintain attendance history
+            await BusinessRule.MaintainAttendanceHistoryAsync(dbc);
+            // Post changes to the database.
+            await dbc.SaveChangesAsync();
+            result = true;
+        }
+        catch (Exception ex) {
+            ErrorHeader = "Save to database error";
+            ErrorMessage = Helpers.GetErrorMessage(ex);
+            await ErrorPopup.ShowPopupAsync();
+            dbc?.ChangeTracker?.Clear();
+        }
+        return result;
+    }
+
+    void UpdateStatistics() {
+        if (selectedDate == null) return;
+        if (SelectedCourse != null) {
+            MinimumParticipants = SelectedCourse.RequiredStudents;
+            MaximumParticipants = SelectedCourse.MaximumStudents;
+        }
+        else {
+            MinimumParticipants = 0;
+            MaximumParticipants = 0;
+        }
+        if (Enrolments != null) {
+            EnrolledParticipants = Enrolments.Where(x => !x.IsWaitlisted).Count();
+            WaitlistedParticipants = Enrolments.Where(x => x.IsWaitlisted).Count();
+        }
+        else {
+            EnrolledParticipants = 0;
+            WaitlistedParticipants = 0;
+        }
+        ClassStatus = BusinessRule.GetEnrolmentStatus(SelectedCourse, Enrolments);
+        buttonRenderStyle = BusinessRule.GetEnrolmentButtonRenderStyle(SelectedCourse, Enrolments);
+        countEnrolledAttendees = ClassAttendance
+                                .Where(x => !x.IsAdHoc && x.AttendClassStatusID == (int)AttendClassStatusType.Present).Count();
+        countAbsentWithApology = ClassAttendance
+                                .Where(x => !x.IsAdHoc && x.AttendClassStatusID == (int)AttendClassStatusType.AbsentFromClassWithApology).Count();
+        countAbsentWithoutApology = ClassAttendance
+                                .Where(x => !x.IsAdHoc && x.AttendClassStatusID == (int)AttendClassStatusType.AbsentFromClassWithoutApology).Count();
+        countAdHoc = ClassAttendance.Where(x => x.IsAdHoc).Count();
+    }
+
+    async Task DeleteAdHocAttendee() {
+        int count = 0;
+        int errorCount = 0;
+        if (SelectedDataItems == null || SelectedDataItems.Count < 1) {
+            ShowInvalidSelectionFlyout((IsLargerLayout()) ? "#DeleteAdHocAttendee" : "#DeleteAdHoc");
+            IsFlyoutOpen = true;
+        }
+        else {
+            count = SelectedDataItems.Count;
+            foreach (var c in SelectedDataItems.Cast<AttendClass>()) {
+                if (!c.IsAdHoc) { errorCount += 1; }
+                else {
+                    dbc.Remove(c);
+                }
+            }
+            if (await SaveChangesAsync()) {
+                if (errorCount == 0) {
+                    await messageBox.ShowOkOnlyAsync("Delete Ad Hoc Attendees", $"{count} ad hoc attendees successfully deleted.");
+                }
+                else {
+                    await messageBox.ShowOkOnlyAsync("Delete Ad Hoc Attendees", $"{count - errorCount} ad hoc attendees successfully deleted. " +
+                                                        $"{errorCount} were not because they were not ad hoc attendance records.");
+                }
+                await GetClassAttendance();
+            }
+        }
+        UpdateStatistics();
+    }
+
+    async Task AddAdHocAttendee() {
+        if (SelectedTerm == null || SelectedCourse == null || SelectedClass == null || selectedDate == null) {
+            ShowAdHocFlyout();
+        }
+        else {
+            int errorCount = 0;
+            int count = 0;
+            if (await adHocAttendanceMnt.ShowAsync()) {
+                count = adHocAttendanceMnt.SelectedPersons.Count();
+                foreach (var p in adHocAttendanceMnt.SelectedPersons) {
+                    var ac = await dbc.AttendClass
+                                .Where(x => x.PersonID == p.ID && x.Class == SelectedClass && x.Date == selectedDate.Date)
+                                .FirstOrDefaultAsync();
+                    if (ac == null) {
+                        ac = new AttendClass();
+                        ac.AttendClassStatus = ClassAttendanceStatus.First();
+                        ac.Comment = adHocAttendanceMnt.AttendanceComment;
+                        ac.Person = await dbc.Person.FindAsync(p.ID);
+                        ac.Date = selectedDate.Date;
+                        ac.DateProcessed = DateTime.Now;
+                        ac.Class = await dbc.Class.FindAsync(SelectedClass.ID);
+                        ac.IsAdHoc = true;
+                        ac.Term = await dbc.Term.FindAsync(SelectedTerm.ID);
+                        _ = await dbc.AttendClass.AddAsync(ac);
+                    }
+                    else { errorCount += 1; }
+                }
+                if (await SaveChangesAsync()) {
+                    if (errorCount == 0) {
+                        await messageBox.ShowOkOnlyAsync("Ad Hoc Attendees Created", $"{count} ad hoc attendees successfully created.");
+                    }
+                    else {
+                        await messageBox.ShowOkOnlyAsync("Ad Hoc Attendees Created", $"{count - errorCount} ad hoc attendees successfully created. " +
+                                                            $"{errorCount} were already on file.");
+                    }
+                    await GetClassAttendance();
+                }
+            }
+            UpdateStatistics();
+        }
+    }
+
+    async Task SetSmallScreenSelectionStatusAsync() {
+        QuickSelectionStatus = await dbc.AttendClassStatus.FindAsync((int)selectedStatusType);
+        await SetSelectionStatusAsync();
+    }
+
+    async Task SetSelectionStatusAsync() {
+        if (SelectedDataItems == null || SelectedDataItems.Count < 1) {
+            ShowInvalidSelectionFlyout("#SetSelectionStatus");
+            IsFlyoutOpen = true;
+        }
+        else {
+            foreach (var a in SelectedDataItems.Cast<AttendClass>()) {
+                var ac = dbc.AttendClass.Find(a.ID);
+                if (ac != null) {
+                    if (QuickSelectionStatus != null) { ac.AttendClassStatus = QuickSelectionStatus; }
+                    ac.Comment = (QuickAttendanceComment != null) ? QuickAttendanceComment : string.Empty;
+                    ac.DateProcessed = DateTime.Now;
+                }
+            }
+            if (await SaveChangesAsync()) {
+                mainGrid?.ClearSelection();
+                UpdateStatistics();
+            }
+        }
+    }
+
+    void ShowInvalidSelectionFlyout(string FlyoutTarget) {
+        HeaderContent = "Select Items";
+        MessageContent = "<p>You must select items from the list to perform this Quick Action.</p>" +
+        "<p>Use the Selection column on the grid to select one or multiple items.</p>";
+        FlyoutTargetID = FlyoutTarget;
+        IsFlyoutOpen = true;
+    }
+
+    async Task OperationCancelledAsync(string HeaderContent) {
+        await messageBox.ShowOkOnlyAsync(HeaderContent, "The operation was cancelled at you request.");
+    }
+
+    void ShowAdHocFlyout() {
+        HeaderContent = "Ad Hoc Attendee";
+        MessageContent = "<p>You must select Term, Course, Class and Date to perform this Quick Action.</p>";
+        FlyoutTargetID = "#AddAdHocAttendee";
+        IsFlyoutOpen = true;
+    }
+
+    string SetVaxCertificateLabel() {
+        return "No Change";
+    }
+
+    async Task OnCommunicate() {
+
+        if (SelectedDataItems == null || SelectedDataItems.Count <= 0) {
+            await messageBox.ShowOkOnlyAsync("Make a Selection", "Select one or more participants to communicate with.");
+            return;
+        }
+        SendTo = new List<Person>();
+        foreach (var e in SelectedDataItems.Cast<AttendClass>().ToList()) {
+            SendTo.Add(e.Person);
+        };
+        if (await selectDocumentTemplatePopup.ShowAsync()) {
+            documentsSent = 0;
+            await ProgressBar.ShowAsync("Sending ... Please Wait", SelectedDataItems.Count);
+            List<ExportData> exportData = await BusinessRule.GetExportDataAsync(dbc, SendTo);
+            bool overridePreference = selectDocumentTemplatePopup.OverrideCommunicationPreference;
+            await server.MailMerge(dbc, selectDocumentTemplatePopup.SelectedDocumentTemplate, exportData, overridePreference);
+            await ProgressBar.Close();
+            await messageBox.ShowOkOnlyAsync("Communication Complete", server.GetHTMLResult());
+        }
+    }
+
+    async void Server_DocumentSent(object sender, DocumentSentEventArgs e) {
+        documentsSent += e.DocumentsSent;
+        await ProgressBar.SetValueAsync(documentsSent);
+    }
+
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+}

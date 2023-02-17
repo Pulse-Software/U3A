@@ -1,0 +1,39 @@
+﻿@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+
+<div class="opacity-100 navbar-bg-color">
+    <nav class="navbar navbar-expand-sm navbar-toggleable-sm box-shadow mb-3 p-0">
+        <div class="container">
+            <div class="col-12" align="center">
+                @if (NavigateTo == "/") {
+                <a class="btn btn-link navbar-brand" onclick="location.reload()"
+                   href="@NavigateTo"><img src="images/u3alogo.png" width="81" />&nbsp; &nbsp; Member Portal</a>
+                }
+                else {
+                <a class="btn btn-link navbar-brand"
+                   href="@NavigateTo"><img src="images/u3alogo.png" width="81" />&nbsp; &nbsp; Member Portal</a>
+                }
+            </div>
+        </div>
+    </nav>
+    @{
+        using (var dbc = U3Adbfactory.CreateDbContext()) {
+            SystemSettings? settings = dbc.SystemSettings.FirstOrDefault();
+            if (settings != null) {
+                <div align="center">
+                    <div class="h5">@settings.U3AGroup</div>
+                    <p class="h6 text-center">
+                        @($"Phone: {settings.Phone}")
+                    </p>
+
+                </div>
+            }
+        };
+    }
+
+</div>
+
+@code {
+    [Parameter]
+    public string NavigateTo { get; set; } = "/";
+
+}

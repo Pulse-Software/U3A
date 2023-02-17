@@ -1,0 +1,239 @@
+﻿@page "/LeaderReports"
+
+@inject IJSRuntime js
+@using Microsoft.AspNetCore.Hosting
+@using Microsoft.Extensions.Logging
+@inject IDbContextFactory<U3ADbContext> U3Adbfactory
+@inject ILogger<SendCorrespondence> Logger
+@inject IWebHostEnvironment Environment
+@implements IDisposable
+@using U3A.UI.Reports
+
+@attribute [Authorize]
+
+@if (!IsReady) {
+    <p><em>Loading...</em></p>
+}
+else {
+    <h3>Leader Reports</h3>
+    <p>Print Class reports for selected courses/leaders.</p>
+    <DxFormLayout>
+        <DxFormLayoutItem Caption="Enrolment Term" ColSpanMd="4">
+            <DxComboBox Data="@terms" NullText="Select the Term required..."
+                    FilteringMode="DataGridFilteringMode.Contains"
+                    TextFieldName="@nameof(Term.TermSummary)"
+                    Value="@selectedTerm"
+                    ValueChanged="@((Term term) => SelectedTermChanged(term))" />
+        </DxFormLayoutItem>
+    </DxFormLayout>
+    <br />
+
+    <MessageBox @ref="@messageBox" />
+    <Progress @ref="@ProgressBar" />
+    <ErrorPopup @ref="@ErrorPopup" PopupHeader="@ErrorHeader" PopupMessage="@ErrorMessage" />
+
+    <DxFormLayout>
+        <div class="col-10 p-2">
+            <GridToolbar @ref="Toolbar" LinkedGrid=@mainGrid />
+            <DxGrid Data="@Classes" @ref=@mainGrid CssClass="grid-height"
+                ColumnResizeMode="GridColumnResizeMode.ColumnsContainer"
+                ShowFilterRow="false"
+                ShowAllRows="true"
+                KeyFieldName="ID"
+                SelectionMode="GridSelectionMode.Multiple"
+                SelectedDataItemChanged="OnSelectedDataItemChanged"
+                @bind-SelectedDataItems="SelectedDataItems"
+                ValidationEnabled="true">
+                <Columns>
+                    <DxGridSelectionColumn Width="2rem" />
+                    <DxGridDataColumn Caption="Name" FieldName="Course.Name" Width="15rem" />
+                    <DxGridDataColumn Caption="Offered" FieldName="OfferedSummary" Width="5rem" />
+                    <DxGridDataColumn Caption="Venue" FieldName="Venue.Name" Width="15rem" />
+                    <DxGridDataColumn Caption="Held" FieldName="OnDay.Day" Width="5rem" />
+                    <DxGridDataColumn Caption="Start" FieldName="StartTime" DisplayFormat="hh:mm tt" Width="5rem" />
+                    <DxGridDataColumn Caption="Duration" FieldName="Course.Duration" Width="4rem" />
+                    <DxGridDataColumn Caption="Leader 1" FieldName="Leader.FullName" Width="8rem" />
+                    <DxGridDataColumn Caption="Leader 2" FieldName="Leader2.FullName" Width="8rem" />
+                    <DxGridDataColumn Caption="Leader 3" FieldName="Leader3.FullName" Width="8rem" />
+                </Columns>
+                <TotalSummary>
+                    <DxGridSummaryItem SummaryType="GridSummaryItemType.Count" Name="Course.Name" FieldName="Course.Name" />
+                </TotalSummary>
+
+            </DxGrid>
+        </div>
+        <div class="col-2">
+            <DxFormLayoutGroup Caption="Select Report">
+                <DxFormLayoutItem Caption="Leader Report" CssClass="w-100">
+                    <DxCheckBox @bind-Checked="@PrintLeaderReport"
+                            Alignment="CheckBoxContentAlignment.Right" />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Class Contact List" CssClass="w-100">
+                    <DxCheckBox @bind-Checked="@PrintClassList"
+                            Alignment="CheckBoxContentAlignment.Right" />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="In Case of Emergency List" CssClass="w-100">
+                    <DxCheckBox @bind-Checked="@PrintICEList"
+                            Alignment="CheckBoxContentAlignment.Right" />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Attendance List" CssClass="w-100">
+                    <DxCheckBox @bind-Checked="@PrintAttendanceRecord"
+                            Alignment="CheckBoxContentAlignment.Right" />
+                </DxFormLayoutItem>
+                <DxFormLayoutItem Caption="Class CSV file (Email Only)" CssClass="w-100">
+                    <DxCheckBox @bind-Checked="@PrintCSVFile"
+                            Alignment="CheckBoxContentAlignment.Right" />
+                </DxFormLayoutItem>
+                <DxButton Text="Print Report(s)" IconCssClass="bi bi-printer" CssClass="col col-11 my-1 mx-auto"
+                      Id="QuickEnrolment" Enabled="@AreSelectionsMade"
+                      RenderStyle="ButtonRenderStyle.Primary" Click="@DoReportsAsync" />
+                <DxButton Text="Email/Post Report(s)" IconCssClass="bi bi-envelope" CssClass="col col-11 my-1 mx-auto"
+                      Id="QuickEnrolment" Enabled="@AreSelectionsMade"
+                      RenderStyle="ButtonRenderStyle.Primary" Click="@DoMailAsync" />
+            </DxFormLayoutGroup>
+        </div>
+    </DxFormLayout>
+}
+<style>
+    .grid-height {
+        height: 75vh;
+    }
+
+</style>
+
+
+@code {
+    bool IsReady;
+    List<Class> Classes { get; set; } = new List<Class>();
+    List<Term> terms { get; set; }
+    Term currentTerm;
+    Term selectedTerm;
+    IReadOnlyList<object> SelectedDataItems { get; set; }
+
+    bool PrintLeaderReport;
+    bool PrintClassList;
+    bool PrintICEList;
+    bool PrintAttendanceRecord;
+    bool PrintCSVFile;
+    bool AreSelectionsMade;
+    ProFormaReportFactory reportFactory;
+
+    DxGridCommandColumnEx? GridCommandColumn;
+    MessageBox messageBox;
+
+    IGrid? mainGrid { get; set; }
+    ErrorPopup? ErrorPopup { get; set; }
+    GridToolbar? Toolbar;
+    Progress? ProgressBar;
+    string ErrorHeader;
+    string ErrorMessage;
+    U3ADbContext dbc { get; set; }
+
+    protected override async Task OnInitializedAsync() {
+        // wire up the data
+        dbc = await U3Adbfactory.CreateDbContextAsync();
+        currentTerm = await BusinessRule.CurrentTermAsync(dbc);
+        terms = await BusinessRule.SelectableRelaxedTermsAsync(dbc);
+        selectedTerm = currentTerm;
+        await SelectedTermChanged(selectedTerm);
+        IsReady = true;
+    }
+
+    async Task SelectedTermChanged(Term term) {
+        selectedTerm = term;
+        Classes = await BusinessRule.SelectableClassesAsync(dbc, selectedTerm.Year);
+    }
+
+    protected override void OnAfterRender(bool firstRender) {
+        // wire up the toolbar
+        base.OnAfterRender(firstRender);
+        if (Toolbar != null && mainGrid != null) { Toolbar.LinkedGrid = mainGrid; }
+    }
+
+    void OnSelectedDataItemChanged() {
+        AreSelectionsMade = true;
+    }
+
+    async Task<bool> IsDataOk() {
+        var result = true;
+        if (!PrintAttendanceRecord && !PrintClassList 
+                    && !PrintICEList && !PrintLeaderReport && !PrintCSVFile) {
+            await messageBox.ShowOkOnlyAsync("Select Report", "At least one report must be selected.");
+            result = false;
+        }
+        return result;
+    }
+
+    async Task DoReportsAsync() { if (await IsDataOk()) await ProcessReportsAsync(true); }
+
+    async Task DoMailAsync() {
+        if (!await IsDataOk()) return;
+        var s = new System.Diagnostics.Stopwatch();
+        await ProcessReportsAsync(false);
+        var elapsedTime = String.Format("{0:00}:{1:00}:{2:00}",
+        s.Elapsed.Hours, s.Elapsed.Minutes, s.Elapsed.Seconds);
+        var items = SelectedDataItems.Count();
+        var postItems = reportFactory.PostalReports.Count();
+        var msg = $"<p>{items} selected documents have been sent.</p>" +
+                $"<p>There were {postItems} postal documents and {items - postItems} emails.<br/>" +
+                $"Postal documents (if any) will be displayed when this message is closed. These must be printed or saved on your PC.</p>" +
+                $"Elapsed time is: {elapsedTime}";
+        await messageBox.SetPopupWidth("33%");
+        await messageBox.ShowOkOnlyAsync("Communication Complete", msg);
+        StateHasChanged();
+    }
+
+    async Task ProcessReportsAsync(bool IsPreview) {
+        await ProgressBar.ShowAsync("Processing ... Please Wait", SelectedDataItems.Count);
+        reportFactory = new ProFormaReportFactory(Environment, U3Adbfactory, IsPreview);
+        int count = 0;
+        foreach (var c in SelectedDataItems.Cast<Class>()) {
+            if (c.Leader != null) await ProcessReportAsync(c.Leader, c.Course, c);
+            if (c.Leader2 != null) await ProcessReportAsync(c.Leader2, c.Course, c);
+            if (c.Leader3 != null) await ProcessReportAsync(c.Leader3, c.Course, c);
+            count++;
+            await ProgressBar.SetValueAsync(count);
+        }
+        await ProgressBar.Close();
+        await ProcessPdf(IsPreview);
+    }
+
+    async Task ProcessPdf(bool IsPreview) {
+        var pdfFilename = reportFactory.CreatePostalPDF();
+        if (pdfFilename != null) {
+            var pdfPath = "Temp/" + pdfFilename;
+            await messageBox.SetPopupWidth("80%");
+            var msg = (IsPreview) ? "Preview Mail Documents" : "Print Postal Documents";
+            await messageBox.ShowOkOnlyAsync(msg, @$"<iframe src='{pdfPath}' width='100%' height='800rem' />");
+        }
+    }
+    async Task ProcessReportAsync(Person Leader, Course Course, Class Class) {
+        var enrolments = new List<Enrolment>();
+        if (dbc.Enrolment.Any(x => x.ClassID == Class.ID && x.TermID == selectedTerm.ID)) {
+            enrolments = dbc.Enrolment.Include(x => x.Person)
+                                      .Where(x => x.ClassID == Class.ID
+                                                && x.TermID == selectedTerm.ID).ToList();
+        }
+        else {
+            enrolments = dbc.Enrolment.Include(x => x.Person)
+                                        .Where(x => x.CourseID == Course.ID
+                                                        && x.TermID == selectedTerm.ID).ToList();
+        };
+        if (enrolments.Count > 0) {
+            await reportFactory.CreateLeaderReports(
+                PrintLeaderReport,
+                PrintAttendanceRecord,
+                PrintClassList,
+                PrintICEList,
+                PrintCSVFile,
+                Leader, enrolments.OrderBy(x => x.IsWaitlisted)
+                                            .ThenBy(x => x.Person.LastName)
+                                            .ThenBy(x => x.Person.FirstName).ToArray());
+        }
+    }
+
+    public void Dispose() {
+        dbc?.Dispose();
+    }
+
+}
